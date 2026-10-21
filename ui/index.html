@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TurtleBot3 Contrôle</title>
+<style>
+:root {
+  --bg: #f4f5f7; --card: #ffffff; --ink: #1d2330; --muted: #667085; --line: #e3e6ec;
+  --accent: #2f6fde; --accent-ink: #ffffff; --ok: #1f9d55; --warn: #c27c0e; --bad: #d64545;
+  --soft: #eef2f8; --scan: #2f6fde; --near: #d64545; --path: #1f9d55;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11141a; --card: #1a1f27; --ink: #e6e9ef; --muted: #8f99aa; --line: #2b323e;
+    --accent: #5b8ff0; --accent-ink: #0d1117; --ok: #3cc47c; --warn: #e0a43a; --bad: #ef6b6b;
+    --soft: #222937; --scan: #7aa7ff; --near: #ff7a7a; --path: #3cc47c;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 12px 20px;
+  align-items: center; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 17px; margin: 0; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  font-weight: 600; background: var(--soft); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.ok .dot, .dot.ok { background: var(--ok); } .warn .dot, .dot.warn { background: var(--warn); }
+.bad .dot, .dot.bad { background: var(--bad); }
+.muted { color: var(--muted); }
+#reason { flex: 1 1 260px; min-width: 0; }
+main { display: grid; gap: 14px; padding: 14px 16px 40px;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); max-width: 1500px; margin: 0 auto; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+.card h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.wide { grid-column: 1 / -1; }
+button { font: inherit; border: 1px solid var(--line); background: var(--soft); color: var(--ink);
+  border-radius: 8px; padding: 7px 12px; cursor: pointer; touch-action: none; user-select: none; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pad { display: grid; grid-template-columns: repeat(3, 64px); gap: 8px; justify-content: center; margin: 6px 0 12px; }
+.pad button { height: 56px; font-size: 20px; padding: 0; }
+.pad button.held { background: var(--accent); color: var(--accent-ink); }
+#stop { font-size: 13px; font-weight: 700; }
+label.slider { display: grid; grid-template-columns: 110px 1fr 70px; gap: 8px; align-items: center; margin: 6px 0; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+table { width: 100%; border-collapse: collapse; }
+td { padding: 3px 0; border-bottom: 1px dashed var(--line); vertical-align: top; }
+td:first-child { color: var(--muted); padding-right: 10px; white-space: nowrap; }
+td:last-child { text-align: right; font-variant-numeric: tabular-nums; word-break: break-all; }
+.sub { font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; display: flex; gap: 8px; align-items: center; }
+.sub .age { margin-left: auto; font-weight: 400; }
+canvas { width: 100%; display: block; background: var(--soft); border-radius: 10px; }
+pre { background: var(--soft); border-radius: 8px; padding: 10px; overflow: auto; max-height: 360px;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; }
+.note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px);
+  background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 10px; opacity: 0;
+  transition: opacity .2s; pointer-events: none; z-index: 5; }
+#toast.show { opacity: .95; }
+.bar { height: 8px; background: var(--soft); border-radius: 99px; overflow: hidden; margin-top: 4px; }
+.bar > div { height: 100%; background: var(--ok); width: 0; transition: width .3s; }
+.topic { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.topics { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); column-gap: 24px; }
+.topic code { font-size: 12px; word-break: break-all; margin-right: 6px; } .topic .muted { font-size: 12px; }
+.topic button { padding: 3px 10px; font-size: 12px; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; }
+select { font: inherit; background: var(--soft); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+@media (max-width: 420px) { main { padding: 12px 16px 40px; grid-template-columns: 1fr; } label.slider { grid-template-columns: 90px 1fr 60px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>TurtleBot3</h1>
+  <span id="ready" class="pill"><span class="dot"></span><span>connexion…</span></span>
+  <span id="reason" class="muted"></span>
+  <span id="batteryHead" class="muted"></span>
+  <span id="link" class="pill"><span class="dot"></span><span>bridge</span></span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Conduite <span class="right muted" id="cmdNow">0.00 m/s · 0.00 rad/s</span></h2>
+    <div class="pad">
+      <button data-dir="fl" title="Avant gauche">↖</button>
+      <button data-dir="f" title="Avancer (W / ↑)">↑</button>
+      <button data-dir="fr" title="Avant droite">↗</button>
+      <button data-dir="l" title="Tourner à gauche (A / ←)">⟲</button>
+      <button id="stop" class="danger" title="Arrêt (Espace)">STOP</button>
+      <button data-dir="r" title="Tourner à droite (D / →)">⟳</button>
+      <button data-dir="bl" title="Arrière gauche">↙</button>
+      <button data-dir="b" title="Reculer (S / ↓)">↓</button>
+      <button data-dir="br" title="Arrière droite">↘</button>
+    </div>
+    <label class="slider">Vitesse <input id="linSpeed" type="range" min="0.01" max="0.10" step="0.01" value="0.05"><span id="linVal"></span></label>
+    <label class="slider">Rotation <input id="angSpeed" type="range" min="0.1" max="1.25" step="0.05" value="0.5"><span id="angVal"></span></label>
+    <div class="note">Maintenir un bouton ou <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / flèches ; <kbd>Espace</kbd> = arrêt.
+      La consigne est renvoyée toutes les 100 ms et expire après 500 ms côté robot.</div>
+
+    <div class="sub">Roues indépendantes</div>
+    <label class="slider">Gauche <input id="leftWheel" type="range" min="-0.10" max="0.10" step="0.01" value="0"><span id="leftVal"></span></label>
+    <label class="slider">Droite <input id="rightWheel" type="range" min="-0.10" max="0.10" step="0.01" value="0"><span id="rightVal"></span></label>
+    <div class="row"><button id="wheelsHold" class="primary">Maintenir pour rouler</button><button id="wheelsZero">Remettre à 0</button></div>
+    <div class="note" id="driveMsg"></div>
+  </section>
+
+  <section class="card">
+    <h2>LiDAR <span class="right"><select id="scanRange" aria-label="Portée affichée">
+      <option value="0">auto</option><option value="1">1 m</option><option value="2">2 m</option><option value="3.5">3,5 m</option></select></span></h2>
+    <canvas id="lidar" height="320"></canvas>
+    <div class="note" id="lidarInfo">En attente de /scan…</div>
+  </section>
+
+  <section class="card">
+    <h2>Odométrie <span class="right"><button id="clearPath">Effacer le tracé</button></span></h2>
+    <canvas id="odomCanvas" height="220"></canvas>
+    <table id="odomTable"></table>
+  </section>
+
+  <section class="card">
+    <h2>Robot (OpenCR)</h2>
+    <div class="sub">Batterie <span class="age" id="batteryAge"></span></div>
+    <div class="bar"><div id="batteryBar"></div></div>
+    <table id="batteryTable"></table>
+    <div class="sub">État capteurs <span class="age" id="sensorAge"></span></div>
+    <table id="sensorTable"></table>
+  </section>
+
+  <section class="card">
+    <h2>IMU et roues</h2>
+    <div class="sub">IMU <span class="age" id="imuAge"></span></div>
+    <table id="imuTable"></table>
+    <div class="sub">Champ magnétique <span class="age" id="magAge"></span></div>
+    <table id="magTable"></table>
+    <div class="sub">Articulations (roues) <span class="age" id="jointAge"></span></div>
+    <table id="jointTable"></table>
+  </section>
+
+  <section class="card">
+    <h2>Actions du robot</h2>
+    <div class="sub"><span class="dot" id="svc-motor_power"></span>Moteurs (couple)</div>
+    <div class="row"><button data-motor="true" class="primary">Activer</button><button data-motor="false">Couper</button></div>
+    <div class="sub"><span class="dot" id="svc-sound"></span>Sons OpenCR</div>
+    <div class="row">
+      <button data-sound="0">Off</button><button data-sound="1">On</button><button data-sound="2">Batterie faible</button>
+      <button data-sound="3">Erreur</button><button data-sound="4">Bouton 1</button><button data-sound="5">Bouton 2</button>
+    </div>
+    <div class="sub"><span class="dot" id="svc-reset"></span>Réinitialisation</div>
+    <div class="row"><button id="reset">Reset (odométrie / IMU)</button></div>
+    <div class="note">Le robot doit être immobile pendant un reset. Couper les moteurs envoie d'abord un arrêt.</div>
+    <div class="note" id="actionMsg"></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Topics ROS <span class="right"><button id="refreshTopics">Actualiser</button></span></h2>
+    <div class="note">Observer un topic (ex. capteur ESP32) affiche ses messages ci-dessous. Types pris en charge :
+      std_msgs, std_srvs, geometry_msgs, nav_msgs, sensor_msgs, turtlebot3_msgs.</div>
+    <div class="row" style="margin-top:8px"><input id="topicInput" placeholder="/nom_du_topic" style="flex:1;min-width:180px;font:inherit;padding:6px 8px;border-radius:6px;border:1px solid var(--line);background:var(--soft);color:var(--ink)">
+      <button id="watchBtn" class="primary">Observer</button></div>
+    <div id="watched"></div>
+    <div class="sub">Graphe ROS</div>
+    <div id="topics" class="muted topics">—</div>
+  </section>
+
+  <section class="card wide">
+    <h2>Système <span class="right muted" id="robotHost"></span></h2>
+    <div class="row">
+      <button id="checkBtn" class="primary">Diagnostic complet du robot</button>
+      <button id="logBtn">Journal du bridge</button>
+      <button id="restartBtn">Redémarrer le bridge</button>
+      <button id="stopBridgeBtn" class="danger">Arrêter le bridge</button>
+    </div>
+    <pre id="sysOut">Les commandes passent par la connexion SSH ouverte par start.sh.</pre>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const L = 0.160; // écartement des roues du Burger (m)
+let limits = { wheel_mps: 0.10, angular_rad_s: 1.25 };
+let isReady = false;
+let telemetry = null;
+
+function toast(text) {
+  const el = $("#toast");
+  el.textContent = text;
+  el.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => el.classList.remove("show"), 3500);
+}
+
+async function api(path, body) {
+  const options = body === undefined ? {} :
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const response = await fetch(path, options);
+  let data = {};
+  try { data = await response.json(); } catch (_) { /* corps non JSON */ }
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+const fmt = (v, digits = 3, unit = "") =>
+  v === null || v === undefined || Number.isNaN(v) ? "—" : `${Number(v).toFixed(digits)}${unit}`;
+const deg = (rad) => (rad === null || rad === undefined ? "—" : `${(rad * 180 / Math.PI).toFixed(1)}°`);
+
+function fillTable(id, rows) {
+  $(id).innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("");
+}
+
+function sensor(name) {
+  const entry = telemetry && telemetry.sensors[name];
+  return entry && entry.age_ms < 2000 ? entry.data : null;
+}
+
+function ageLabel(id, name) {
+  const entry = telemetry && telemetry.sensors[name];
+  const el = $(id);
+  if (!entry) { el.textContent = "absent"; el.style.color = "var(--muted)"; return; }
+  el.textContent = entry.age_ms < 2000 ? `${entry.age_ms} ms` : `ancien (${(entry.age_ms / 1000).toFixed(0)} s)`;
+  el.style.color = entry.age_ms < 2000 ? "var(--muted)" : "var(--warn)";
+}
+
+/* ---------- État ---------- */
+async function pollStatus() {
+  try {
+    const status = await api("/api/status");
+    isReady = status.status === "ready";
+    setPill("#ready", isReady ? "ok" : "warn", isReady ? "ready" : "not ready");
+    $("#reason").textContent = `${status.reason} · ${status.supervisor}`;
+    setPill("#link", "ok", "bridge connecté");
+  } catch (error) {
+    isReady = false;
+    setPill("#ready", "bad", "hors ligne");
+    $("#reason").textContent = error.message;
+    setPill("#link", "bad", "bridge injoignable");
+  }
+}
+
+function setPill(id, kind, text) {
+  const el = $(id);
+  el.className = `pill ${kind}`;
+  el.lastElementChild.textContent = text;
+}
+
+/* ---------- Télémétrie ---------- */
+async function pollTelemetry() {
+  try {
+    telemetry = await api("/api/telemetry");
+  } catch (_) {
+    telemetry = null;
+  }
+  if (!telemetry) return;
+  if (telemetry.limits) applyLimits(telemetry.limits);
+  const c = telemetry.command;
+  $("#cmdNow").textContent = `${fmt(c.linear_mps, 2)} m/s · ${fmt(c.angular_rad_s, 2)} rad/s`;
+  renderBattery();
+  renderSensors();
+  renderImu();
+  renderOdom();
+  drawLidar();
+  renderServices();
+  renderWatched();
+}
+
+function applyLimits(next) {
+  if (next.wheel_mps === limits.wheel_mps && next.angular_rad_s === limits.angular_rad_s) return;
+  limits = next;
+  const lin = $("#linSpeed"), ang = $("#angSpeed");
+  lin.max = limits.wheel_mps;
+  ang.max = limits.angular_rad_s.toFixed(2);
+  for (const id of ["#leftWheel", "#rightWheel"]) {
+    $(id).min = -limits.wheel_mps; $(id).max = limits.wheel_mps;
+  }
+  updateSliderLabels();
+}
+
+function renderBattery() {
+  const b = sensor("battery"), s = sensor("sensor_state");
+  ageLabel("#batteryAge", "battery");
+  const volts = b ? b.voltage_v : s ? s.battery_v : null;
+  let pct = b && b.percentage !== null ? b.percentage : null;
+  if (pct !== null && pct > 1.0) pct /= 100; // certaines versions publient 0–100
+  fillTable("#batteryTable", [
+    ["Tension", fmt(volts, 2, " V")],
+    ["Charge", pct === null ? "—" : `${Math.round(pct * 100)} %`],
+    ["Courant", b ? fmt(b.current_a, 2, " A") : "—"],
+  ]);
+  const bar = $("#batteryBar");
+  bar.style.width = pct === null ? "0" : `${Math.max(0, Math.min(1, pct)) * 100}%`;
+  bar.style.background = pct !== null && pct < 0.2 ? "var(--bad)" : pct !== null && pct < 0.4 ? "var(--warn)" : "var(--ok)";
+  $("#batteryHead").textContent = volts === null ? "" : `🔋 ${fmt(volts, 1, " V")}${pct === null ? "" : ` · ${Math.round(pct * 100)} %`}`;
+}
+
+function renderSensors() {
+  const s = sensor("sensor_state");
+  ageLabel("#sensorAge", "sensor_state");
+  if (!s) { fillTable("#sensorTable", [["/sensor_state", "aucune donnée"]]); return; }
+  const bumper = [s.bumper & 1 ? "avant" : null, s.bumper & 2 ? "arrière" : null].filter(Boolean).join(", ") || "libre";
+  const buttons = [s.button & 1 ? "B0" : null, s.button & 2 ? "B1" : null].filter(Boolean).join(", ") || "aucun";
+  fillTable("#sensorTable", [
+    ["Couple moteurs", s.torque ? "<b style='color:var(--ok)'>activé</b>" : "<b style='color:var(--bad)'>coupé</b>"],
+    ["Pare-chocs", bumper],
+    ["Boutons", buttons],
+    ["Falaise (cliff)", fmt(s.cliff, 2)],
+    ["Sonar", fmt(s.sonar, 2)],
+    ["Luminosité", fmt(s.illumination, 2)],
+    ["LED", s.led],
+    ["Encodeurs G / D", `${s.left_encoder} / ${s.right_encoder}`],
+    ["Batterie (OpenCR)", fmt(s.battery_v, 2, " V")],
+  ]);
+}
+
+function renderImu() {
+  const imu = sensor("imu"), mag = sensor("magnetic_field"), joints = sensor("joint_states");
+  ageLabel("#imuAge", "imu"); ageLabel("#magAge", "magnetic_field"); ageLabel("#jointAge", "joint_states");
+  const v = (o, d) => (o ? `${fmt(o.x, d)} / ${fmt(o.y, d)} / ${fmt(o.z, d)}` : "—");
+  fillTable("#imuTable", [
+    ["Cap (yaw)", imu ? deg(imu.yaw_rad) : "—"],
+    ["Vit. angulaire x/y/z (rad/s)", v(imu && imu.angular_velocity, 2)],
+    ["Accélération x/y/z (m/s²)", v(imu && imu.linear_acceleration, 2)],
+  ]);
+  fillTable("#magTable", [["x / y / z (µT)", mag ? ["x", "y", "z"].map((k) => fmt(mag.tesla[k] === null ? null : mag.tesla[k] * 1e6, 1)).join(" / ") : "—"]]);
+  fillTable("#jointTable", joints ? joints.name.map((n, i) => [n, `${fmt(joints.position_rad[i], 2)} rad · ${fmt(joints.velocity_rad_s[i], 2)} rad/s`]) : [["/joint_states", "—"]]);
+}
+
+/* ---------- Odométrie ---------- */
+const path = [];
+function renderOdom() {
+  const o = sensor("odom");
+  fillTable("#odomTable", [
+    ["Position x / y", o ? `${fmt(o.x, 3)} / ${fmt(o.y, 3)} m` : "—"],
+    ["Cap", o ? deg(o.yaw_rad) : "—"],
+    ["Vitesse mesurée", o ? `${fmt(o.linear_mps, 3)} m/s · ${fmt(o.angular_rad_s, 2)} rad/s` : "—"],
+  ]);
+  if (o && o.x !== null) {
+    const last = path[path.length - 1];
+    if (!last || Math.hypot(last.x - o.x, last.y - o.y) > 0.005) path.push({ x: o.x, y: o.y });
+    if (path.length > 3000) path.shift();
+  }
+  drawOdom(o);
+}
+
+function prepareCanvas(canvas) {
+  const ratio = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth, height = canvas.clientHeight || Number(canvas.getAttribute("height"));
+  if (canvas.width !== Math.round(width * ratio)) {
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  return { ctx, width, height };
+}
+
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function drawRobot(ctx, x, y, heading, size) {
+  // heading : angle écran, 0 = vers le haut, sens horaire positif
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(heading);
+  ctx.beginPath();
+  ctx.moveTo(0, -size); ctx.lineTo(size * 0.7, size * 0.8); ctx.lineTo(-size * 0.7, size * 0.8); ctx.closePath();
+  ctx.fillStyle = css("--accent"); ctx.fill();
+  ctx.restore();
+}
+
+function drawOdom(o) {
+  const { ctx, width, height } = prepareCanvas($("#odomCanvas"));
+  const points = path.length ? path : [{ x: 0, y: 0 }];
+  let minX = Math.min(...points.map((p) => p.x)), maxX = Math.max(...points.map((p) => p.x));
+  let minY = Math.min(...points.map((p) => p.y)), maxY = Math.max(...points.map((p) => p.y));
+  const span = Math.max(maxX - minX, maxY - minY, 0.5);
+  const scale = Math.min(width, height) * 0.8 / span;
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  // Repère ROS : x vers le haut de l'écran, y vers la gauche.
+  const toScreen = (p) => [width / 2 - (p.y - cy) * scale, height / 2 - (p.x - cx) * scale];
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+  const grid = span > 4 ? 1 : span > 1.5 ? 0.5 : 0.1;
+  ctx.fillStyle = css("--muted"); ctx.font = "11px sans-serif";
+  ctx.fillText(`grille ${grid} m`, 8, height - 8);
+  ctx.beginPath();
+  for (let g = Math.floor((cy - span) / grid) * grid; g <= cy + span; g += grid) {
+    const [sx] = toScreen({ x: cx, y: g }); ctx.moveTo(sx, 0); ctx.lineTo(sx, height);
+  }
+  for (let g = Math.floor((cx - span) / grid) * grid; g <= cx + span; g += grid) {
+    const [, sy] = toScreen({ x: g, y: cy }); ctx.moveTo(0, sy); ctx.lineTo(width, sy);
+  }
+  ctx.stroke();
+  ctx.strokeStyle = css("--path"); ctx.lineWidth = 2; ctx.beginPath();
+  path.forEach((p, i) => { const [sx, sy] = toScreen(p); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
+  ctx.stroke();
+  if (o && o.x !== null) {
+    const [sx, sy] = toScreen(o);
+    drawRobot(ctx, sx, sy, -o.yaw_rad, 9);
+  }
+}
+$("#clearPath").onclick = () => { path.length = 0; };
+
+/* ---------- LiDAR ---------- */
+function drawLidar() {
+  const scan = sensor("scan");
+  const { ctx, width, height } = prepareCanvas($("#lidar"));
+  const cxs = width / 2, cys = height / 2;
+  if (!scan) {
+    $("#lidarInfo").textContent = "Pas de données /scan récentes (LiDAR arrêté ou absent).";
+    drawRobot(ctx, cxs, cys, 0, 10);
+    return;
+  }
+  const valid = scan.ranges.filter((r) => r !== null);
+  const chosen = Number($("#scanRange").value);
+  const maxRange = chosen || Math.min(scan.range_max || 3.5, Math.max(0.5, ...valid.map((r) => r * 1.1)));
+  const scale = Math.min(width, height) / 2 * 0.95 / maxRange;
+  ctx.strokeStyle = css("--line"); ctx.fillStyle = css("--muted"); ctx.font = "11px sans-serif";
+  const step = maxRange > 2 ? 1 : 0.5;
+  for (let r = step; r <= maxRange + 1e-6; r += step) {
+    ctx.beginPath(); ctx.arc(cxs, cys, r * scale, 0, 2 * Math.PI); ctx.stroke();
+    ctx.fillText(`${r} m`, cxs + 3, cys - r * scale + 12);
+  }
+  let front = null;
+  const near = css("--near"), far = css("--scan");
+  scan.ranges.forEach((r, i) => {
+    if (r === null) return;
+    const a = scan.angle_min + i * scan.angle_increment;
+    const norm = Math.atan2(Math.sin(a), Math.cos(a));
+    if (Math.abs(norm) <= Math.PI / 12 && (front === null || r < front)) front = r;
+    if (r > maxRange) return;
+    // Repère robot : 0 rad devant (haut de l'écran), angles positifs à gauche.
+    const x = cxs - Math.sin(a) * r * scale, y = cys - Math.cos(a) * r * scale;
+    ctx.fillStyle = r < 0.25 ? near : far;
+    ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+  });
+  drawRobot(ctx, cxs, cys, 0, 10);
+  $("#lidarInfo").textContent = `${valid.length}/${scan.ranges.length} mesures valides · obstacle devant (±15°) : ${front === null ? "aucun" : fmt(front, 2, " m")}`;
+}
+
+/* ---------- Conduite ---------- */
+const held = new Set();
+const keyMap = { ArrowUp: "f", KeyW: "f", ArrowDown: "b", KeyS: "b", ArrowLeft: "l", KeyA: "l", ArrowRight: "r", KeyD: "r" };
+let wheelsHeld = false;
+let moving = false;
+let inflight = false;
+
+function updateSliderLabels() {
+  $("#linVal").textContent = `${Number($("#linSpeed").value).toFixed(2)} m/s`;
+  $("#angVal").textContent = `${Number($("#angSpeed").value).toFixed(2)} rad/s`;
+  $("#leftVal").textContent = `${Number($("#leftWheel").value).toFixed(2)} m/s`;
+  $("#rightVal").textContent = `${Number($("#rightWheel").value).toFixed(2)} m/s`;
+}
+document.querySelectorAll("input[type=range]").forEach((el) => el.addEventListener("input", updateSliderLabels));
+updateSliderLabels();
+
+function desired() {
+  if (wheelsHeld) {
+    const left = Number($("#leftWheel").value), right = Number($("#rightWheel").value);
+    return { linear: (left + right) / 2, angular: (right - left) / L };
+  }
+  const dirs = [...held].join("");
+  const fwd = /f/.test(dirs) ? 1 : 0, back = /b/.test(dirs) ? 1 : 0;
+  const left = /l/.test(dirs) ? 1 : 0, right = /r/.test(dirs) ? 1 : 0;
+  let linear = (fwd - back) * Number($("#linSpeed").value);
+  let angular = (left - right) * Number($("#angSpeed").value);
+  // Garder chaque roue sous la limite en réduisant proportionnellement.
+  const wheel = Math.abs(linear) + Math.abs(angular) * L / 2;
+  if (wheel > limits.wheel_mps) {
+    const k = limits.wheel_mps / wheel;
+    linear *= k; angular *= k;
+  }
+  return { linear, angular };
+}
+
+function release(message) {
+  held.clear();
+  wheelsHeld = false;
+  document.querySelectorAll(".pad .held, #wheelsHold.held").forEach((b) => b.classList.remove("held"));
+  if (message) { $("#driveMsg").textContent = message; toast(message); }
+}
+
+async function sendStop() {
+  try { await api("/api/stop", {}); } catch (error) { toast(`Arrêt non confirmé : ${error.message}`); }
+}
+
+async function driveTick() {
+  const active = wheelsHeld || held.size > 0;
+  if (!active) {
+    if (moving) { moving = false; sendStop(); }
+    return;
+  }
+  if (inflight) return;
+  const { linear, angular } = desired();
+  inflight = true;
+  try {
+    await api("/api/velocity", { linear_mps: Number(linear.toFixed(4)), angular_rad_s: Number(angular.toFixed(4)) });
+    moving = true;
+    $("#driveMsg").textContent = "";
+  } catch (error) {
+    release(`Commande refusée : ${error.message}`);
+    moving = true; // provoque un stop explicite au tick suivant
+  } finally {
+    inflight = false;
+  }
+}
+setInterval(driveTick, 100);
+
+document.querySelectorAll(".pad button[data-dir]").forEach((button) => {
+  const dirs = button.dataset.dir.split("");
+  const press = (e) => {
+    e.preventDefault();
+    if (!isReady) { toast("Robot not ready : voir la raison en haut"); return; }
+    button.classList.add("held");
+    button.setPointerCapture && e.pointerId !== undefined && button.setPointerCapture(e.pointerId);
+    dirs.forEach((d) => held.add(d));
+  };
+  const lift = () => { button.classList.remove("held"); dirs.forEach((d) => held.delete(d)); };
+  button.addEventListener("pointerdown", press);
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach((ev) => button.addEventListener(ev, lift));
+});
+
+$("#stop").addEventListener("click", () => { release(); moving = false; sendStop(); });
+
+const hold = $("#wheelsHold");
+hold.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  if (!isReady) { toast("Robot not ready : voir la raison en haut"); return; }
+  wheelsHeld = true; hold.classList.add("held");
+  hold.setPointerCapture && hold.setPointerCapture(e.pointerId);
+});
+["pointerup", "pointercancel", "lostpointercapture"].forEach((ev) =>
+  hold.addEventListener(ev, () => { wheelsHeld = false; hold.classList.remove("held"); }));
+$("#wheelsZero").onclick = () => { $("#leftWheel").value = 0; $("#rightWheel").value = 0; updateSliderLabels(); };
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (e.code === "Space") { e.preventDefault(); release(); moving = false; sendStop(); return; }
+  const dir = keyMap[e.code];
+  if (!dir) return;
+  e.preventDefault();
+  if (e.repeat) return;
+  if (!isReady) { toast("Robot not ready : voir la raison en haut"); return; }
+  held.add(dir);
+});
+document.addEventListener("keyup", (e) => { const dir = keyMap[e.code]; if (dir) held.delete(dir); });
+window.addEventListener("blur", () => release());
+document.addEventListener("visibilitychange", () => { if (document.hidden) release(); });
+
+/* ---------- Actions ---------- */
+async function action(label, path, body) {
+  $("#actionMsg").textContent = `${label}…`;
+  try {
+    const result = await api(path, body);
+    $("#actionMsg").textContent = `${label} : ${result.message || "ok"}`;
+  } catch (error) {
+    $("#actionMsg").textContent = `${label} : ${error.message}`;
+    toast(`${label} : ${error.message}`);
+  }
+}
+document.querySelectorAll("[data-motor]").forEach((b) => b.addEventListener("click", () => {
+  const on = b.dataset.motor === "true";
+  if (!on) release();
+  action(on ? "Activation des moteurs" : "Coupure des moteurs", "/api/motor_power", { enabled: on });
+}));
+document.querySelectorAll("[data-sound]").forEach((b) => b.addEventListener("click", () =>
+  action(`Son ${b.textContent}`, "/api/sound", { value: Number(b.dataset.sound) })));
+$("#reset").onclick = () => {
+  if (!confirm("Réinitialiser l'odométrie / l'IMU ? Le robot doit rester immobile.")) return;
+  release();
+  path.length = 0;
+  action("Reset", "/api/reset", {});
+};
+
+function renderServices() {
+  for (const [key, service] of Object.entries(telemetry.services || {})) {
+    const dot = document.getElementById(`svc-${key}`);
+    if (!dot) continue;
+    dot.className = `dot ${service.available ? "ok" : "bad"}`;
+    dot.title = `${service.name} : ${service.available ? "disponible" : "non détecté"}`;
+  }
+}
+
+/* ---------- Topics ---------- */
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function refreshTopics() {
+  try {
+    const { topics } = await api("/api/topics");
+    if (!topics.length) { $("#topics").textContent = "Aucun topic découvert (domaine ROS, bringup ?)"; return; }
+    $("#topics").innerHTML = topics.map((t) => `<div class="topic"><div><code>${escapeHtml(t.name)}</code>
+      <span class="muted">${escapeHtml(t.types.join(", "))}</span></div>
+      <button data-watch="${escapeHtml(t.name)}">Observer</button></div>`).join("");
+  } catch (error) {
+    $("#topics").textContent = error.message;
+  }
+}
+$("#refreshTopics").onclick = refreshTopics;
+$("#topics").addEventListener("click", (e) => {
+  const topic = e.target.dataset && e.target.dataset.watch;
+  if (topic) watch(topic);
+});
+$("#watchBtn").onclick = () => { const t = $("#topicInput").value.trim(); if (t) watch(t.startsWith("/") ? t : `/${t}`); };
+$("#topicInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#watchBtn").click(); });
+
+async function watch(topic) {
+  try { toast((await api("/api/watch", { topic })).message); } catch (error) { toast(error.message); }
+}
+async function unwatch(topic) {
+  try { await api("/api/unwatch", { topic }); } catch (error) { toast(error.message); }
+}
+$("#watched").addEventListener("click", (e) => { const t = e.target.dataset && e.target.dataset.unwatch; if (t) unwatch(t); });
+
+function renderWatched() {
+  const entries = Object.entries(telemetry.watched || {});
+  $("#watched").innerHTML = entries.map(([topic, w]) => `
+    <div class="sub"><code>${escapeHtml(topic)}</code> <span class="muted">${escapeHtml(w.type)}</span>
+      <span class="age">${w.age_ms === null ? "aucun message" : `${w.age_ms} ms`}</span>
+      <button data-unwatch="${escapeHtml(topic)}">Arrêter</button></div>
+    <pre>${w.data === null ? "—" : escapeHtml(JSON.stringify(w.data, null, 2))}</pre>`).join("");
+}
+
+/* ---------- Système (SSH via start.sh) ---------- */
+async function system(label, path, method = "GET", confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  $("#sysOut").textContent = `${label}…`;
+  try {
+    const response = await fetch(path, { method });
+    const data = await response.json();
+    $("#sysOut").textContent = data.output || `(code ${data.code})`;
+    $("#sysOut").scrollTop = $("#sysOut").scrollHeight;
+  } catch (error) {
+    $("#sysOut").textContent = `${label} impossible : ${error.message}`;
+  }
+}
+$("#checkBtn").onclick = () => system("Diagnostic en cours (jusqu'à 30 s)", "/local/check");
+$("#logBtn").onclick = () => system("Lecture du journal", "/local/log?lines=300");
+$("#restartBtn").onclick = () => { release(); system("Redémarrage du bridge", "/local/restart", "POST", "Redémarrer le bridge ? Le bringup qu'il a lancé sera relancé (≈30 s)."); };
+$("#stopBridgeBtn").onclick = () => { release(); system("Arrêt du bridge", "/local/stop", "POST", "Arrêter le bridge sur le robot ? L'interface ne pourra plus piloter."); };
+fetch("/local/info").then((r) => r.json()).then((info) => { $("#robotHost").textContent = info.robot; }).catch(() => {});
+
+/* ---------- Boucles ---------- */
+pollStatus(); pollTelemetry(); refreshTopics();
+setInterval(pollStatus, 500);
+setInterval(pollTelemetry, 200);
+setInterval(refreshTopics, 5000);
+</script>
+</body>
+</html>

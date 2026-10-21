@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Rust : compilation locale et résultat de ./start.sh build (recompilable)
+bridge/target/
+bridge/dist/
+
+# Configuration propre au robot et identifiants (ne jamais versionner)
+bridge/robot.env
+robot.env
+sshRobot.md

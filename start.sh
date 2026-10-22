@@ -131,7 +131,7 @@ check() {
 
 start_bridge() {
     step "Démarrage du bridge"
-    ctl start || die "Le bridge ne démarre pas (voir le journal ci-dessus)"
+    ctl start || die "Démarrage du bridge non confirmé (voir le journal ci-dessus)"
 }
 
 TUNNEL=""
@@ -148,7 +148,7 @@ cleanup() {
     fi
     if [ -n "$UI_PID" ]; then kill "$UI_PID" 2>/dev/null || true; fi
     close_master
-    echo "  Interface et tunnel fermés. Le bridge continue sur le robot (./start.sh stop pour l'arrêter)."
+    echo "  Interface et tunnel fermés. État du bridge : ./start.sh status ; arrêt : ./start.sh stop."
 }
 
 open_tunnel() {

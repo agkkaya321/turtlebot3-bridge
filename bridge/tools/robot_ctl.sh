@@ -143,22 +143,28 @@ cmd_start() {
     fi
     chmod +x "$BIN" run.sh
     [ -f bridge.log ] && mv -f bridge.log bridge.log.1
-    # setsid : le bridge survit à la fermeture de la session SSH.
-    setsid nohup bash run.sh > bridge.log 2>&1 < /dev/null &
-    local i
-    for i in 1 2 3 4 5 6 7 8 9 10; do
+    # Suivre aussi run.sh pendant le chargement de ROS, avant l'exec du binaire.
+    # --wait conserve ce suivi même si setsid doit créer un processus enfant.
+    setsid --wait nohup bash run.sh > bridge.log 2>&1 < /dev/null &
+    local launcher=$! i response pids
+    for i in $(seq 1 60); do
         sleep 0.5
-        if [ -z "$(bridge_pids)" ]; then
+        pids=$(bridge_pids)
+        if ! kill -0 "$launcher" 2>/dev/null && [ -z "$pids" ]; then
+            wait "$launcher" 2>/dev/null || true
             echo "Le bridge s'est arrêté au démarrage :"
             tail -n 30 bridge.log
             return 1
         fi
-        if http_get /ready >/dev/null 2>&1 && [ -n "$(http_get /ready)" ]; then
+        if [ -n "$pids" ] && response=$(http_get /ready 2>/dev/null) && [ -n "$response" ]; then
             echo "Bridge démarré (PID $(bridge_pids | tr '\n' ' '))."
             return 0
         fi
     done
-    echo "Bridge lancé mais HTTP pas encore prêt ; voir bridge.log."
+    echo "Délai de démarrage dépassé : le processus est encore actif, mais l'API HTTP ne répond pas."
+    echo "Il peut terminer son démarrage après ce délai ; vérifier avec ./start.sh status depuis le Mac."
+    tail -n 30 bridge.log
+    return 1
 }
 
 cmd_stop() {

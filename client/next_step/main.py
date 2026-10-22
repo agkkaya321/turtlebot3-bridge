@@ -7,9 +7,10 @@ from tb3 import Robot
 
 class Main(Robot):
     def setup(self):
-        self.sound("button1")
+        self.sound("error")
 
     def loop(self):
+        self.sound("low_battery")
         pass
 
 

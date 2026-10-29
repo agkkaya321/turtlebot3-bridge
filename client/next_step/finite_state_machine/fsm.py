@@ -1,13 +1,15 @@
+from client.next_step.finite_state_machine.states.laser_aiming_left_state import LaserAimingLeftState
+from client.next_step.finite_state_machine.states.laser_aiming_right_state import LaserAimingRightState
+from client.next_step.finite_state_machine.states.moving_backward_state import MovingBackwardState
+from client.next_step.finite_state_machine.states.posture_checking_state import PostureCheckingState
 from state import State
 
 states = {
     0 : State("initial"),
-    1 : State("posture_checking"),
-    2 : State("moving_backward"),
-    3 : State("laser_aiming_left"),
-    4 : State("laser_aiming_right"),
-    5 : State("calibrating_laser"),
-    6 : State("calibrating_robot_pos")
+    1 : PostureCheckingState(),
+    2 : MovingBackwardState(),
+    3 : LaserAimingLeftState(),
+    4 : LaserAimingRightState(),
 }
 
 class FiniteStateMachine:
@@ -17,7 +19,9 @@ class FiniteStateMachine:
 
     def transition(self, new_state):
         if new_state in self.states:
+            self.current_state.exit()
             self.current_state = new_state
+            self.current_state.enter()
 
     def get_current_state(self):
         return self.current_state

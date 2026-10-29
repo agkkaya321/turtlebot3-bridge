@@ -9,7 +9,6 @@ __pycache__/
 # Rust : compilation locale et résultat de ./start.sh build (recompilable)
 bridge/target/
 bridge/dist/
-
 # Configuration propre au robot et identifiants (ne jamais versionner)
 bridge/robot.env
 robot.env
@@ -17,3 +16,4 @@ sshRobot.md
 *.toml
 *.xml
 *.iml
+slide/

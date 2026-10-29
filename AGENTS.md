@@ -1,100 +1,177 @@
-# Contexte de travail — NextStep
+# Contexte de travail — NextStep / TurtleBot3 Bridge
 
 ## Projet et source de vérité
 
 - Échanger en français avec l'utilisateur.
-- Racine du workspace : ce dossier, contenant `src/`, `setup/` et `dist/`.
-  Le sous-dossier `ROS/` est un ancien projet IDE Java ; ne pas le prendre pour
-  la racine Python et ne pas le supprimer sans demande.
 - Projet **NextStep**, auteurs **Ali Gökkaya et Jason Condrea**.
-- Contexte extrait des cinq slides de `dist/index.html` et du tableau `d0`
-  dans `dist/assets/index-DwZMrydP.js` :
+- La racine contient `start.sh`, `bridge/`, `client/`, `ui/`, `docs/` et les
+  slides locales dans `slides/dist/`.
+- La présentation (`slides/dist/index.html` et tableau `d0` dans
+  `slides/dist/assets/index-DwZMrydP.js`) décrit les objectifs suivants :
   1. Fabrication et prototypage.
   2. Caméra : suivi de posture et de position en temps réel ; score envisagé
      selon la stabilité et la lordose.
-  3. Capteurs portés : fréquence cardiaque en BPM et oxygénation en pourcentage.
-  4. Prédiction du prochain pas à partir de la posture et des paramètres vitaux ;
-     laser indiquant au sol une cible pour chaque pied successivement.
+  3. Capteurs portés : fréquence cardiaque en BPM et saturation en oxygène.
+  4. Détermination du prochain pas à partir de la posture et des paramètres
+     vitaux ; laser indiquant au sol une cible pour chaque pied successivement.
   5. Conclusion de présentation.
 - Les animations et valeurs vitales des slides sont simulées. Les objectifs
   présentés ne sont pas des capacités déjà développées ou validées.
-- Le socle, le nœud `nextstep_health` et le script autonome
-  `src/nextstep/nextstep/avancer_3_secondes.py` sont implémentés. Ce dernier envoie
-  directement une vitesse de 0,05 m/s pendant 3 secondes sur `/cmd_vel`
-  (`TwistStamped`), puis l'arrêt ; il commande un mouvement réel lorsqu'il est
-  exécuté sur le robot. Ne pas l'exécuter sur le matériel pour une vérification.
-  Modèles de caméra, capteurs, laser, algorithmes et interfaces métier restent
-  à préciser. Voir `LANCER_AVANCER.md` pour la procédure SSH sans Docker.
+- Les anciens chemins `src/nextstep/`, `setup/`, `compose.yaml` et les commandes
+  `colcon` ne décrivent pas ce dépôt. Ne pas réintroduire l'ancienne architecture
+  ROS Python pour suivre une documentation historique.
 
-## Environnement
+## Architecture actuelle
 
-- Hôte observé : macOS Apple Silicon, Python 3.12, Docker Desktop, PyCharm.
-- Exécution ROS : Ubuntu 24.04, ROS 2 **Jazzy**, Python **3.12**, Gazebo Harmonic,
-  TurtleBot3 Burger ; architecture native arm64. Ne pas migrer de distribution
-  ROS ni remplacer les scripts existants sans nécessité liée à la demande.
-- `.venv/bin/python` : outils locaux/slides seulement. `rclpy` provient de ROS
-  dans Docker, pas de pip sur macOS.
-- `compose.yaml`, service `ros-dev`, interpréteur **`/usr/local/bin/ros-python`**,
-  racine locale montée dans `/ws`. Ce wrapper charge les environnements ROS
-  même si PyCharm ignore l'ENTRYPOINT. Ne pas l'appeler récursivement.
-- `setup/Dockerfile.python` étend l'image Jazzy existante. `setup/dev.sh image`
-  construit d'abord cette base seulement si elle est absente.
-- `setup/run.sh` garde le workflow de simulation ; `setup/robot.sh` celui du
-  robot réel. Les volumes et le réseau de développement/simulation sont partagés.
-- Domaine simulation **30** ; domaine des tests **87** ; robot réel **109**.
-  `setup/robot.env` conserve la configuration robot ; l'IP doit être confirmée
-  sur le matériel. La découverte DDS Docker → robot n'est pas validée.
+- **Mac** : client Python et interface web, communiquant en HTTP avec le robot
+  via un tunnel SSH. ROS et `rclpy` ne sont pas nécessaires sur le Mac.
+- **Robot** : TurtleBot3 Burger, Raspberry Pi sous Ubuntu 24.04 ARM64, ROS 2
+  Jazzy, OpenCR et LiDAR. Le README vise un LDS-03 ; confirmer le matériel réel.
+  ROS, les pilotes et leurs bibliothèques doivent déjà être installés.
+- **`bridge/`** : bridge Rust ROS 2 ↔ HTTP, compilé pour Linux ARM64 avec
+  `bridge/Dockerfile` et Docker sur le Mac. Rust et Docker ne sont pas requis
+  sur le robot ; le binaire utilise les bibliothèques ROS présentes sur celui-ci.
+- **`start.sh`** : connexion SSH, copie de `bridge/dist/` dans `~/bridge`,
+  diagnostic, lancement du bridge, tunnel HTTP et ouverture de l'interface.
+  Préparer le binaire avant de rejoindre le réseau isolé du robot.
+- **`client/robot.py`** : `BridgeClient`, accès direct à l'API HTTP.
+- **`client/tb3.py`** : classe `Robot`, avec `setup()` puis `loop()` à 10 Hz par
+  défaut ; mouvements, capteurs et services. Le client utilise la bibliothèque
+  standard Python, sans dépendance externe.
+- **`client/next_step/`** : code métier NextStep et machine à états en cours
+  de construction. Placer les nouveaux comportements du projet ici.
+- **`client/exemples/`** et **`client/demo.py`** : exemples de lecture de capteurs
+  et de mouvements ; certains commandent réellement les moteurs.
+- **`ui/`** : serveur Python local et interface HTML/JavaScript sans CDN,
+  utilisables sans accès internet.
+- **`slides/dist/`** : présentation web compilée avec animations 3D. Conserver
+  ces fichiers intacts sauf demande portant sur les slides ; les sources de
+  développement de la présentation ne sont pas fournies.
 
-## Commandes de référence (depuis la racine)
+## État du développement
+
+- Le bridge, le client et l'interface sont implémentés. `bridge/README.md`
+  rapporte des validations en conteneur et contre un faux robot, mais pas encore
+  sur le robot réel. Ne pas déduire une validation matérielle de la présence
+  du binaire ou de tests logiciels réussis.
+- `client/next_step/main.py` contient actuellement des appels de sons et
+  n'intègre pas encore la machine à états.
+- Les états présents sont `initial`, `posture_checking`, `moving_backward`,
+  `laser_aiming_left` et `laser_aiming_right`. Leurs actions sont encore des
+  messages de console ; leurs noms ne prouvent pas un comportement fonctionnel.
+  La logique de transition reste à terminer et à vérifier avant intégration.
+- Caméra confirmée par l'utilisateur : **Logitech C270 HD**, branchée en USB
+  au Raspberry Pi du robot pour filmer la personne qui s'entraîne. La série 2,
+  tâche 6, utilise ce modèle avec `usb_cam` et `pixel_format:=mjpeg2rgb` :
+  https://github.com/nembrinj/protofablab/blob/main/2026/assignments/AN_02/html/AN_02_ROS.html
+- Le flux caméra n'est pas encore intégré au bridge. L'observation générique
+  des topics dans `bridge/src/watch.rs` limite chaque message JSON à 32 Kio ;
+  elle ne constitue pas un transport vidéo adapté. Le lieu d'exécution de
+  l'analyse de posture et le transport des images restent à choisir.
+- Capteurs portés, commande du laser, algorithmes de posture et de choix du pas,
+  ainsi que leurs interfaces restent à préciser.
+- Ne pas présenter un score clinique ou une recommandation de pas comme validés.
+
+## Connexion et configuration
+
+- Adresse SSH par défaut : `ubuntu@192.168.1.109`, configurable avec
+  `ROBOT_HOST`. Confirmer l'adresse et l'accès au réseau sur place.
+- API sur le robot : `127.0.0.1:8000`. Tunnel local sur le port 8000 et interface
+  sur le port 8080 par défaut ; `start.sh` choisit un port suivant libre si
+  nécessaire. Utiliser les URL affichées par le script.
+- Variables du lanceur : `ROBOT_HOST`, `ROBOT_SSH_PORT`, `LOCAL_PORT`, `UI_PORT`,
+  `NO_BROWSER=1`, `SKIP_CHECK=1` ; voir `start.sh` pour leur comportement.
+- Configuration active : `~/bridge/robot.env`, préservée au déploiement.
+  Le modèle `bridge/robot.env.example` définit le domaine ROS **109**, le modèle
+  `burger`, `CMD_VEL_TYPE=stamped`, `ROS_AUTOSTART=true` et
+  `BRIDGE_BIND=127.0.0.1:8000`. Adapter aux valeurs réelles du robot et des pilotes.
+- `bridge/run.sh` charge ROS Jazzy, le workspace TurtleBot3 s'il existe, reprend
+  les variables TurtleBot3 de `~/.bashrc`, puis charge `robot.env`, prioritaire.
+- Le Mac passe par HTTP/SSH ; il n'a pas à découvrir le robot par DDS.
+- Garder les identifiants hors du code et de cette documentation. `sshRobot.md`
+  est un fichier local éventuel, ignoré par Git ; ne pas supposer sa présence.
+
+## Commandes de référence
+
+Depuis la racine du dépôt, sur le Mac :
 
 ```bash
-./setup/dev.sh init       # crée .venv, installe pytest, écrit l'identifiant .env
-./setup/dev.sh image      # construit l'image Python de développement
-./setup/dev.sh build      # colcon build --symlink-install --base-paths /ws/src
-./setup/dev.sh check      # contexte rclpy, messages et index des paquets
-./setup/dev.sh test       # publication/abonnement DDS réel, nécessite Docker
-./setup/dev.sh node       # diagnostic /nextstep/health
-./setup/dev.sh shell      # shell Ubuntu avec ROS chargé
-./setup/dev.sh python -c 'import rclpy; print(rclpy.__file__)'
-./setup/dev.sh slides     # http://127.0.0.1:5174
-./setup/run.sh desktop    # bureau de simulation, port 6080
-./setup/run.sh sim        # Gazebo
+./start.sh build         # Docker : tests Rust, compilation ARM64 et smoke test
+./start.sh               # déploiement, bridge, tunnel et interface
+./start.sh check         # diagnostic du robot via SSH
+./start.sh status        # état du bridge
+./start.sh log 100       # dernières lignes du journal
+./start.sh stop          # arrête le bridge et le bringup qu'il a lancé
+ROBOT_HOST=ubuntu@AUTRE_IP ./start.sh
 ```
 
-Sans le venv : `python3 -m http.server 5174 --bind 127.0.0.1 --directory dist`.
-`python -m http.server:5174` est une syntaxe incorrecte.
+- Docker Desktop doit être démarré pour compiler ; internet est nécessaire
+  pour récupérer les images et dépendances non disponibles localement.
+- Ne pas exécuter le binaire Linux de `bridge/dist/` directement sous macOS.
+- `./start.sh` agit sur le robot : ce n'est pas une simple vérification locale.
+- Ctrl+C ferme l'interface et le tunnel après une demande d'arrêt du mouvement ;
+  le bridge continue sur le robot. `./start.sh stop` arrête le bridge.
+- Les commandes SSH peuvent proposer l'installation d'une clé via `ssh-copy-id`.
 
-## Conventions de développement
+Pour consulter les slides uniquement, sans connexion au robot :
 
-- Sources métier Python dans `src/nextstep/nextstep/`, paramètres dans `config/`,
-  lancements dans `launch/`. Conserver le paquet compatible `ament_python`.
-- Déclarer les dépendances ROS dans `package.xml` et les installer dans l'image.
-  Ne pas installer silencieusement des paquets dans un conteneur jetable.
-- Préférer des fonctions Python indépendantes de ROS pour les futurs calculs,
-  avec des nœuds ROS responsables des messages, horloges et paramètres.
-- Ne pas ajouter de bibliothèque de vision/ML sans besoin concret. Ne pas
-  présenter un score clinique ou une recommandation de pas comme validés.
-- Le nœud de diagnostic ne doit pas commander les moteurs ou le laser.
-- Conserver `dist/` intact : seul le résultat compilé des slides est fourni.
-- Ne pas versionner `.venv`, `.env`, caches, logs, rosbag ou données de personnes.
-  Les métadonnées du paquet (contact/licence) sont provisoires, pas une décision
-  de publication sous licence libre.
-- Ne pas compiler simultanément le workspace depuis plusieurs terminaux.
-- Après changement Python/ROS : compiler et exécuter les vérifications adaptées.
-  Le test ROS est ignoré sur le Mac ; un skip ne valide pas le fonctionnement ROS.
-- Ne pas confondre la validation CLI de l'interpréteur et une validation du
-  débogueur dans l'interface PyCharm. La sélection du SDK Docker est propre à l'IDE.
-- Dans `.idea/NextStep.iml`, utiliser `$PROJECT_DIR$` pour la racine et les
-  chemins du projet. `$MODULE_DIR$/..` a fait inclure le Bureau dans PyCharm.
-- `cleanup.sh` détruit les artefacts Docker du projet ; ne pas le lancer comme
-  opération de routine. Ne pas lancer de commande de mouvement sur le robot
-  dans le cadre d'un simple contrôle de l'environnement.
+```bash
+python3 -m http.server 5174 --bind 127.0.0.1 --directory slides/dist
+```
+
+Ouvrir ensuite `http://127.0.0.1:5174`.
+
+## Vérifications et conventions
+
+- Préférer des fonctions Python indépendantes du transport pour les calculs
+  métier. Utiliser `Robot` ou `BridgeClient` pour accéder au robot.
+- Ne pas ajouter de bibliothèque de vision/ML sans besoin concret, ni installer
+  `rclpy` par pip sur macOS pour contourner l'architecture du bridge.
+- Tests locaux sans robot, depuis la racine :
+
+```bash
+python3 -B -m unittest discover -s client -p 'test_*.py'
+python3 -B -m unittest discover -s bridge/tools -p 'test_*.py'
+```
+
+- Après modification du bridge Rust, `./start.sh build` exécute les tests Rust
+  et le smoke test HTTP du vrai binaire dans Docker. La sortie est générée dans
+  `bridge/dist/` ; le script met également à jour `bridge/Cargo.lock` depuis
+  l'artefact. Ne pas modifier manuellement les fichiers générés.
+- Pour les scripts shell modifiés, utiliser `bash -n` et les tests adaptés.
+  Vérifier l'interface dans le navigateur si son comportement est modifié.
+- Adapter les vérifications au changement ; une modification documentaire ne
+  nécessite ni compilation Docker ni lancement sur le robot.
+- Éviter plusieurs compilations simultanées écrivant dans `bridge/dist/`.
+- Ne pas versionner environnements virtuels, caches, identifiants, configuration
+  propre au robot, logs ou données de personnes. Consulter `.gitignore` : les
+  slides et artefacts compilés sont actuellement ignorés, ainsi que les motifs
+  globaux `*.toml`, `*.xml` et `*.iml`. Vérifier les fichiers suivis avant un ajout.
+
+## Commandes matérielles et limites
+
+- Ne pas lancer de commande de mouvement ou de laser sur le matériel pour
+  une simple vérification du code ou de l'environnement.
+- Les premiers essais de mouvement se font à faible vitesse, roues dégagées
+  sur un support stable, sans autre programme publiant des consignes de vitesse.
+- Limite par défaut : **±0,10 m/s par roue**, configurable via `MAX_SPEED_MPS`
+  jusqu'à 0,22 m/s. Une consigne expire après **500 ms** ; le bridge publie alors
+  une vitesse nulle. Cela ne constitue pas une validation de l'arrêt physique.
+- Le bridge ne freine pas automatiquement devant un obstacle : le comportement
+  utilisateur doit le gérer. L'état `ready` ne garantit pas l'absence d'obstacle.
+- Le mode `--dry-run` du client inhibe les mouvements ; il ne remplace pas les
+  tests unitaires sans réseau et ne signifie pas que tout accès au robot est simulé.
+- Avec `ROS_AUTOSTART=true`, le bridge peut lancer et relancer le bringup ROS.
+  Préserver les pilotes déjà lancés par un autre processus.
 
 ## Documentation
 
-- `README.md` : démarrage et configuration de PyCharm.
-- `setup/README.md` : simulation, volumes et robot.
-- `setup/GUIDE_TURTLEBOT3.md` : historique et commandes du TP matériel.
-- `LANCER_AVANCER.md` : copier et exécuter le script de mouvement sur le robot.
-- Mettre ce contexte à jour si les choix matériels, les interfaces ou
-  l'architecture du projet évoluent.
+- `README.md` : vue d'ensemble, démarrage et organisation.
+- `bridge/README.md` : API HTTP, capteurs, services, readiness et configuration.
+- `docs/GUIDE_ROBOT.md` : programmation avec `tb3.Robot`.
+- `docs/DEPLOIEMENT.md` : compilation, déploiement, interface et dépannage.
+  Ses exemples de chemin absolu sont historiques ; utiliser la racine réelle.
+- `docs/GUIDE_TURTLEBOT3_PYTHON.md` : notes du cours sur l'approche directe
+  `rclpy`, distincte du client HTTP utilisé dans ce dépôt.
+- Mettre ce contexte à jour si le matériel, les interfaces, l'architecture ou
+  l'état de validation du projet évoluent.

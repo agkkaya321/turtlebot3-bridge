@@ -14,3 +14,6 @@ bridge/dist/
 bridge/robot.env
 robot.env
 sshRobot.md
+*.toml
+*.xml
+*.iml

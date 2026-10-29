@@ -4,7 +4,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from tb3 import Robot
+from client.tb3 import Robot
 
 COTE = 0.40      # m
 VITESSE = 0.08   # m/s

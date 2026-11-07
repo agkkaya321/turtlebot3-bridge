@@ -294,6 +294,123 @@ class AllerRetour(Robot):
 
 Les attributs de ton choix (`self.cotes = 0` dans `setup()`) servent de mémoire entre deux tours.
 
+## Suivi LiDAR NextStep
+
+`client/next_step/main.py` active l'état `UserFollowState` (identifiant 1,
+nom `user_follow`) et appelle sa méthode `loop()` à chaque cycle. Ce programme
+commande désormais les moteurs lorsqu'une cible est détectée.
+
+L'extraction, indépendante du robot, se trouve dans `client/next_step/lidar.py` :
+
+1. Convertir les rayons en coordonnées cartésiennes dans le repère du scan
+   (x devant, y à gauche) et garder `x > 0` et `R < 3` mètres. La ROI est un
+   demi-disque avant : la limitation latérale à ±0,5 m est supprimée.
+   `ROI_MAX_DISTANCE` dans `lidar.py` règle ce rayon. Il s'agit de la distance
+   euclidienne depuis le LiDAR (`R = sqrt(x*x + y*y)`), distincte de la distance
+   de Manhattan utilisée pour la vitesse. Les points à 3 m ou au-delà sont
+   exclus avant la formation des clusters.
+2. Regrouper les rayons consécutifs distants de moins de 15 cm. Un rayon invalide
+   ou hors ROI coupe le cluster. La jonction du début et de la fin d'un scan
+   à 360° est prise en compte.
+3. Garder les clusters dont le diamètre (distance maximale entre deux points)
+   est compris entre 5 et 20 cm inclus. Le centre est la moyenne des points.
+4. Former des paires de candidats dont les centres sont espacés de 10 à 65 cm,
+   avec une différence de profondeur x de 40 cm maximum et un écart latéral y
+   d'au moins 8 cm. Le milieu des centres donne la position de chaque paire.
+5. Sans historique, sélectionner la paire dont le milieu est le plus proche
+   du LiDAR. En suivi, sélectionner celle dont le milieu est le plus proche
+   de la dernière cible observée, à 50 cm maximum. Si les deux meilleurs scores
+   diffèrent de moins de 15 cm, la cible reste ambiguë et le robot s'arrête.
+   Ainsi, quatre candidats ou plus n'impliquent plus systématiquement un arrêt.
+
+Si aucune paire ne peut être associée en suivi, une jambe seule peut être
+retenue à proximité de la dernière cible, avec la même limite de saut et le
+même critère d'ambiguïté. À l'acquisition, un cluster seul n'est utilisé que
+s'il est l'unique candidat. Deux candidats incompatibles ne sont pas moyennés.
+
+La mémoire `TargetTracker` conserve la dernière position pendant 1 seconde
+sans observation acceptée, afin de retrouver la cible après une brève perte.
+Elle ne produit aucune consigne à partir de cette position mémorisée seule.
+Après expiration, une nouvelle acquisition est possible et l'ancienne moyenne
+de distance est effacée. Les numéros des clusters changent entre scans :
+l'association utilise leurs positions, pas ces numéros.
+
+Ces paramètres de sélection sont des heuristiques réglables dans `lidar.py` :
+
+| Constante | Valeur | Rôle |
+|---|---|---|
+| `PAIR_MIN_SEPARATION` / `PAIR_MAX_SEPARATION` | 0,10 / 0,65 m | Écart entre centres |
+| `PAIR_MAX_DEPTH_DIFFERENCE` | 0,40 m | Tolérance de décalage avant/arrière |
+| `PAIR_MIN_LATERAL_SEPARATION` | 0,08 m | Écart latéral minimal |
+| `SELECTION_MARGIN` | 0,15 m | Différence minimale entre les deux meilleurs scores |
+| `TRACK_MAX_JUMP` | 0,50 m | Distance maximale à la dernière position observée |
+| `TRACK_TIMEOUT` | 1 s | Oubli de la cible sans observation acceptée |
+
+Les réglages sont en tête de
+`client/next_step/finite_state_machine/states/user_follow_state.py` :
+
+| Constante | Valeur | Rôle |
+|---|---|---|
+| `DISTANCE_THRESHOLD` | 1,5 m | Distance de Manhattan souhaitée |
+| `REACTIVITY_CONSTANT` | 0,5 | Gain proportionnel |
+| `SLIDING_WINDOW_SIZE` | 100 | Nombre maximal de mesures conservées |
+| `SCAN_MAX_AGE` | 0,5 s | Âge maximal accepté du scan |
+
+À chaque cycle valide, l'état ajoute `abs(x_target) + abs(y_target)` dans son
+propre buffer. La moyenne utilise les mesures disponibles au démarrage, puis
+les 100 dernières valeurs. La vitesse est `0.5 * (moyenne - 1.5)`, bornée par
+`robot.max_wheel_speed()` : `forward(v)` si positive, `backward(-v)` si négative,
+`stop()` si nulle. Aucune rotation n'est commandée. `Robot.run()` transmet la
+consigne au bridge après la boucle ; aucun accès ROS direct n'est nécessaire.
+
+Un scan absent ou périmé, ou une cible indéterminée, entraîne une consigne nulle
+et vide le buffer de distance. L'entrée et la sortie de l'état font de même
+et effacent aussi la mémoire de position. Les mesures
+sont ajoutées par cycle, même si le scan n'a pas changé entre deux cycles.
+À 10 Hz, la fenêtre représente environ 10 secondes et retarde la réaction aux
+changements de distance : la consigne de 1,5 m n'est pas une garantie de sécurité.
+
+L'extraction est testée sur des scans synthétiques ; la sélection est aussi
+vérifiée sur des centres retranscrits des journaux utilisateur, sans disposer
+des rayons réels correspondants. Le comportement corrigé reste à valider sur
+le robot. Des objets de taille similaire peuvent être retenus comme jambes ;
+le suivi n'identifie pas une personne
+et n'intègre pas d'évitement d'obstacles, notamment pendant le recul. Le repère
+du LiDAR doit être aligné avec celui du robot pour interpréter x comme l'avant.
+
+### Diagnostic du suivi
+
+Le journal du suivi est activé par défaut (`DEBUG_FOLLOW = True` dans
+`user_follow_state.py`). La commande habituelle, depuis `client/`, suffit :
+
+```bash
+python3 next_step/main.py
+```
+
+Toutes les secondes (`DEBUG_INTERVAL`), une seule ligne résume le suivi :
+
+```text
+Jambes détectées — distance : 1.20 m — ajustement : recule.
+Jambes détectées — distance : 1.50 m — position maintenue.
+Jambes non détectées — arrêt.
+```
+
+La distance affichée est la distance euclidienne instantanée entre le LiDAR et
+la cible sélectionnée. La commande continue d'utiliser la distance de Manhattan
+lissée ; l'ajustement affiché correspond à la consigne, pas à une mesure de
+mouvement effectif. Le mode `--dry-run` ajoute `[simulation, sans mouvement]`.
+
+Les détails des clusters, la cause d'une perte de cible, les angles et les temps
+restent disponibles dans `state.diagnostics`, sans affichage supplémentaire.
+Les valeurs de contrôle sont accessibles via `state.r_smooth`, `state.raw_speed`
+et `state.speed`. L'affichage simple peut être désactivé avec `DEBUG`.
+
+`Main.verbose = False` masque les messages techniques de démarrage, les
+transitions initiales, les consignes chiffrées en simulation et les avertissements
+« Tour trop lent ». Les erreurs de connexion et les messages d'arrêt restent
+visibles. `Robot` conserve ses diagnostics habituels pour les autres programmes ;
+les durées du dernier tour restent accessibles dans `robot.cycle_timings_ms`.
+
 ## Erreurs fréquentes
 
 | Message | Cause |

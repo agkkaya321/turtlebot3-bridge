@@ -1,11 +1,11 @@
-//! Observation à la demande de n'importe quel topic (ex. capteur ESP32),
-//! pour les types de messages compilés dans le bridge (IDL_PACKAGE_FILTER).
+//! Watch any topic on demand (e.g. an ESP32 sensor),
+//! using message types compiled into the bridge (IDL_PACKAGE_FILTER).
 use crate::{config::MAX_WATCHES, state::Telemetry};
 use futures::{FutureExt, Stream, StreamExt};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, time::Instant};
 
-/// Au-delà, le message n'est pas renvoyé (carte, image…).
+/// Larger messages are not returned (maps, images, etc.).
 const MAX_JSON: usize = 32 * 1024;
 
 type Messages = Box<dyn Stream<Item = r2r::Result<Value>> + Unpin>;
@@ -23,34 +23,34 @@ impl Watches {
         telemetry: &mut Telemetry,
     ) -> Result<String, String> {
         if self.streams.contains_key(topic) {
-            return Ok(format!("{topic} déjà observé"));
+            return Ok(format!("{topic} is already being watched"));
         }
         if self.streams.len() >= MAX_WATCHES {
-            return Err(format!("{MAX_WATCHES} topics observés au maximum"));
+            return Err(format!("At most {MAX_WATCHES} topics can be watched"));
         }
         let graph = node
             .get_topic_names_and_types()
-            .map_err(|error| format!("Graphe ROS illisible : {error}"))?;
+            .map_err(|error| format!("Unable to read the ROS graph: {error}"))?;
         let Some(kind) = graph.get(topic).and_then(|types| types.first()).cloned() else {
-            return Err(format!("{topic} n'existe pas dans le graphe ROS"));
+            return Err(format!("{topic} does not exist in the ROS graph"));
         };
-        // sensor_data (best effort) reçoit aussi les publishers fiables.
+        // sensor_data (best effort) also receives messages from reliable publishers.
         let mut qos = r2r::QosProfile::sensor_data();
         qos.depth = 1;
         let stream = node
             .subscribe_untyped(topic, &kind, qos)
-            .map_err(|error| format!("Type {kind} non pris en charge par le bridge : {error}"))?;
+            .map_err(|error| format!("Type {kind} is not supported by the bridge: {error}"))?;
         self.streams.insert(topic.into(), Box::new(stream));
         telemetry.watched.insert(topic.into(), (kind.clone(), None));
-        Ok(format!("{topic} ({kind}) observé"))
+        Ok(format!("Watching {topic} ({kind})"))
     }
 
     pub fn remove(&mut self, topic: &str, telemetry: &mut Telemetry) -> Result<String, String> {
         telemetry.watched.remove(topic);
-        // Supprimer le récepteur suffit : r2r retire l'abonnement au cycle suivant.
+        // Dropping the receiver is enough: r2r removes the subscription on the next cycle.
         match self.streams.remove(topic) {
-            Some(_) => Ok(format!("{topic} n'est plus observé")),
-            None => Err(format!("{topic} n'était pas observé")),
+            Some(_) => Ok(format!("No longer watching {topic}")),
+            None => Err(format!("{topic} was not being watched")),
         }
     }
 

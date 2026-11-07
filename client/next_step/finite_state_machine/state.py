@@ -1,12 +1,21 @@
 class State:
-    def __init__(self, name):
-       self.name = name
+    def __init__(self, name, robot=None):
+        self.name = name
+        self.robot = robot
 
     def enter(self):
-        print(f"Entering state: {self.name}")
+        if getattr(self.robot, "verbose", True):
+            print(f"Entering state: {self.name}")
+
+    def loop(self):
+        """
+        Loops in the state when the robot is active.
+        Read values and update the robot's topic with self.robot.
+        """
 
     def exit(self):
-        print(f"Exiting state: {self.name}")
+        if getattr(self.robot, "verbose", True):
+            print(f"Exiting state: {self.name}")
 
     def get_name(self):
         return self.name

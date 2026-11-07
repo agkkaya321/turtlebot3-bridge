@@ -1,4 +1,4 @@
-//! État partagé avec HTTP ; une boucle ROS figée ne peut rester « ready ».
+//! State shared with HTTP; a frozen ROS loop cannot remain ready.
 use crate::{config::STATUS_TIMEOUT, velocity::Velocity};
 use serde_json::{json, Map, Value};
 use std::{
@@ -7,7 +7,7 @@ use std::{
     time::Instant,
 };
 
-/// Demandes transmises par HTTP à la boucle ROS.
+/// Requests forwarded from HTTP to the ROS loop.
 pub enum Request {
     Velocity(Velocity),
     MotorPower(bool),
@@ -39,7 +39,7 @@ impl Status {
             ready: false,
             reason: reason.into(),
             ros_alive: false,
-            supervisor: "initialisation".into(),
+            supervisor: "initializing".into(),
             updated: Instant::now(),
         }
     }
@@ -60,7 +60,7 @@ impl Status {
         let fresh = self.updated.elapsed() < STATUS_TIMEOUT;
         json!({
             "status": self.label(),
-            "reason": if !fresh && self.ready { "Boucle ROS sans réponse" } else { self.reason.as_str() },
+            "reason": if !fresh && self.ready { "ROS loop unresponsive" } else { self.reason.as_str() },
             "ros_alive": fresh && self.ros_alive,
             "supervisor": self.supervisor,
         })
@@ -71,8 +71,8 @@ pub fn update(shared: &SharedStatus, status: Status) {
     *shared.lock().unwrap_or_else(|error| error.into_inner()) = status;
 }
 
-/// Dernières valeurs des capteurs, pour affichage seulement :
-/// la readiness reste calculée par health.rs dans la boucle ROS.
+/// Latest sensor values, for display only:
+/// readiness is still computed by health.rs in the ROS loop.
 #[derive(Default)]
 pub struct Telemetry {
     sensors: BTreeMap<String, (Instant, Value)>,

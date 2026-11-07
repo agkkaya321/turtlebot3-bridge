@@ -1,4 +1,4 @@
-"""Afficher les capteurs chaque seconde, sans bouger. Ctrl+C pour quitter."""
+"""Display sensor readings every second without moving. Press Ctrl+C to exit."""
 import os
 import sys
 
@@ -11,9 +11,9 @@ class Capteurs(Robot):
         if not self.every(1):
             return
         self.log("pose", self.pose())
-        self.log("devant", self.front_distance(), "m ; plus proche", self.closest_obstacle())
-        self.log("batterie", self.battery_voltage(), "V ; moteurs", self.torque(),
-                 "; bouton", self.button(), "; encodeurs", self.encoders())
+        self.log("front", self.front_distance(), "m; closest", self.closest_obstacle())
+        self.log("battery", self.battery_voltage(), "V; motors", self.torque(),
+                 "; button", self.button(), "; encoders", self.encoders())
         self.log("imu", self.imu())
 
 

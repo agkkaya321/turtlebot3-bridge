@@ -1,4 +1,4 @@
-//! Boucle ROS : capteurs, état, consignes, services et expiration des commandes.
+//! ROS loop: sensors, status, commands, services, and command expiration.
 use crate::{
     config::{Config, LEASE, PERIOD},
     health::Health,
@@ -25,13 +25,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Commandes traitées par cycle : l'interface renvoie la vitesse à 10 Hz
-/// pendant qu'un appel de service peut aussi arriver.
+/// Commands processed per cycle: the UI resends velocity at 10 Hz
+/// while service calls may also arrive.
 const COMMANDS_PER_CYCLE: usize = 8;
-/// Rafraîchissement de la liste des topics, en cycles (1 s).
+/// Topic list refresh interval in cycles (1 s).
 const GRAPH_EVERY: u32 = 20;
 
-/// Dernier message disponible, en bornant le travail par cycle.
+/// Latest available message, with bounded work per cycle.
 fn latest<T>(stream: &mut (impl Stream<Item = T> + Unpin)) -> Option<T> {
     let mut last = None;
     for _ in 0..32 {
@@ -78,7 +78,7 @@ pub fn run(
     let mut health = Health::default();
     let mut velocity = Velocity::ZERO;
     let mut last_command = Instant::now();
-    // Toute perte de readiness invalide aussi les requêtes arrivées avant sa récupération.
+    // Losing readiness also invalidates requests received before readiness returns.
     let mut commands_after = Instant::now();
     let mut cycles: u32 = 0;
 
@@ -131,11 +131,11 @@ pub fn run(
                 || subscribers > 0;
             supervisor.tick(config, health.ros_alive(), external, || {
                 if let Err(error) = publisher.publish(Velocity::ZERO, &mut clock) {
-                    eprintln!("Arrêt avant relance non confirmé : {error}");
+                    eprintln!("Stop before restart not confirmed: {error}");
                 }
             });
             let reason = if !supervisor.allows_motion() {
-                Some("Redémarrage du bringup en cours")
+                Some("Bringup restart in progress")
             } else {
                 health.reason(subscribers)
             };
@@ -158,9 +158,9 @@ pub fn run(
                 match request {
                     Request::Velocity(requested) => {
                         let error = if received_at.elapsed() >= LEASE {
-                            Some("Commande expirée")
+                            Some("Command expired")
                         } else if !requested.is_zero() && (!ready || received_at < commands_after) {
-                            Some("not ready : attendre ready puis envoyer une nouvelle commande")
+                            Some("not ready: wait for ready, then send a new command")
                         } else {
                             None
                         };
@@ -174,25 +174,25 @@ pub fn run(
                     }
                     Request::MotorPower(enabled) => {
                         if !enabled {
-                            // Demander l'arrêt avant de couper le couple.
+                            // Request a stop before disabling motor torque.
                             velocity = Velocity::ZERO;
                             publisher.publish(velocity, &mut clock)?;
                         }
                         if let Err(error) = services.motor_power(enabled, reply.clone()) {
-                            let _ = reply.send(Err(format!("Requête motor_power : {error}")));
+                            let _ = reply.send(Err(format!("motor_power request: {error}")));
                         }
                     }
                     Request::Sound(value) => {
                         if let Err(error) = services.sound(value, reply.clone()) {
-                            let _ = reply.send(Err(format!("Requête sound : {error}")));
+                            let _ = reply.send(Err(format!("sound request: {error}")));
                         }
                     }
                     Request::Reset => {
-                        // Le reset peut recalibrer l'IMU : jamais pendant un mouvement.
+                        // Reset may recalibrate the IMU: never do it while moving.
                         velocity = Velocity::ZERO;
                         publisher.publish(velocity, &mut clock)?;
                         if let Err(error) = services.reset(reply.clone()) {
-                            let _ = reply.send(Err(format!("Requête reset : {error}")));
+                            let _ = reply.send(Err(format!("reset request: {error}")));
                         }
                     }
                     Request::Watch(topic) => {
@@ -246,13 +246,13 @@ pub fn run(
     })();
     state::update(
         status,
-        Status::waiting("Boucle ROS arrêtée ou en récupération"),
+        Status::waiting("ROS loop stopped or recovering"),
     );
     services.abort();
     state::lock(telemetry).velocity = Velocity::ZERO;
     for _ in 0..3 {
         if let Err(error) = publisher.publish(Velocity::ZERO, &mut clock) {
-            eprintln!("Impossible de publier l'arrêt : {error}");
+            eprintln!("Unable to publish stop: {error}");
         }
         thread::sleep(PERIOD);
     }

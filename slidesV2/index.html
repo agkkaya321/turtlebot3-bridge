@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#ededed" />
+  <meta name="description" content="NextStep — Presentation 2: how the robot goes from observing a person to a step target on the floor." />
+  <title>NextStep — How it works</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%231d6957'/%3E%3Cpath d='M17 44V20h8l14 24h8V20' fill='none' stroke='%23ddf3b1' stroke-width='6'/%3E%3C/svg%3E" />
+  <link rel="preload" href="fonts/InstrumentSerif-Regular.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="fonts/DMSans.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="stylesheet" href="css/style.css" />
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/build/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body data-slide="0">
+  <main class="presentation" aria-label="NextStep presentation. Arrow keys change slides, N shows speaker notes, F full screen, Space pauses the animation.">
+    <div id="viewport" aria-label="Animated 3D illustration. Drag to rotate; scroll to zoom."></div>
+    <div id="labels" aria-hidden="true"></div>
+
+    <section class="slide-copy" id="slide-copy" aria-live="polite" aria-atomic="true"></section>
+
+    <div class="viz-tag" id="viz-tag"></div>
+
+    <aside class="pulse-panel" aria-label="Simulated vital signs">
+      <span class="pulse-label">HEART RATE</span>
+      <div class="pulse-reading"><strong id="pulse-bpm">78</strong><span>bpm</span></div>
+      <canvas id="pulse-wave" width="480" height="124" aria-label="Animated simulated heart rate waveform"></canvas>
+      <div class="pulse-oxygen"><span>SpO₂</span><strong>98<small>%</small></strong></div>
+      <span class="pulse-note">Simulated readings</span>
+    </aside>
+
+    <div class="timeline" id="timeline" aria-label="Cycle timeline (illustration)">
+      <div class="tl-head"><span></span><b>1 · Back up</b><b>2 · Estimate</b><b>3 · Choose target</b><b>4 · Mark</b><b>5 · Step</b></div>
+      <div class="tl-row"><span>Robot</span><i>moves back</i><i>films the person</i><i>—</i><i>aims the laser</i><i>waits</i></div>
+      <div class="tl-row"><span>Processing</span><i>—</i><i>image → posture</i><i>rule to design</i><i>target → aim</i><i>step detection<br>(to define)</i></div>
+      <div class="tl-row"><span>Person</span><i>stands</i><i>holds the posture</i><i>—</i><i>sees the spot</i><i>steps</i></div>
+      <div class="tl-cursor" id="tl-cursor"></div>
+    </div>
+
+    <div class="divider" aria-hidden="true"></div>
+    <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+    <aside class="notes" id="notes" aria-label="Speaker notes" hidden></aside>
+    <div id="loading" role="status"><span class="loader"></span><strong>Loading 3D…</strong><span id="loading-detail"></span></div>
+  </main>
+</body>
+</html>

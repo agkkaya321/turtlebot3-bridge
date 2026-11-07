@@ -1,8 +1,8 @@
-from client.next_step.finite_state_machine.state import State
+from ..state import State
 
 class LaserAimingRightState(State):
-    def __init__(self):
-        super().__init__("laser_aiming_right")
+    def __init__(self, robot=None):
+        super().__init__("laser_aiming_right", robot)
 
     def enter(self):
         print("Entering laser_aiming_right state")

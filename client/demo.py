@@ -1,4 +1,4 @@
-"""Premier essai : avancer lentement pendant une seconde, puis arrêter."""
+"""First trial: move forward slowly for one second, then stop."""
 
 import argparse
 
@@ -8,7 +8,7 @@ from robot import BridgeClient
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://127.0.0.1:8000")
-    parser.add_argument("--speed", type=float, default=0.03, help="Vitesse en m/s")
+    parser.add_argument("--speed", type=float, default=0.03, help="Speed in m/s")
     parser.add_argument("--seconds", type=float, default=1.0)
     args = parser.parse_args()
 
@@ -25,4 +25,4 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("Interruption du client.")
+        print("Client interrupted.")

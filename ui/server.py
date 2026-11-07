@@ -1,9 +1,9 @@
-"""Serveur local de l'interface web, lancé par start.sh sur le Mac.
+"""Local web UI server, started by start.sh on the Mac.
 
-- sert index.html ;
-- relaie /api/* vers le bridge (tunnel SSH), donc pas de CORS ;
-- /local/* exécute robot_ctl.sh sur le robot par la connexion SSH partagée.
-Bibliothèque standard uniquement : fonctionne sans internet.
+- serves index.html;
+- proxies /api/* to the bridge through the SSH tunnel, avoiding CORS;
+- /local/* runs robot_ctl.sh on the robot through the shared SSH connection.
+Standard library only: works without internet access.
 """
 
 import argparse
@@ -35,7 +35,7 @@ ARGS = parse_args()
 
 
 def robot_ctl(*arguments, timeout=60):
-    """Exécute robot_ctl.sh sur le robot ; renvoie (code, sortie)."""
+    """Run robot_ctl.sh on the robot and return (exit code, output)."""
     command = ["ssh", "-p", ARGS.ssh_port, "-o", f"ControlPath={ARGS.control_path}", "-o", "BatchMode=yes",
                "-o", "ConnectTimeout=6", ARGS.robot, "bash", "-s", "--", *arguments]
     try:
@@ -43,7 +43,7 @@ def robot_ctl(*arguments, timeout=60):
             result = subprocess.run(command, stdin=script, capture_output=True,
                                     timeout=timeout)
     except subprocess.TimeoutExpired:
-        return 124, "Délai dépassé"
+        return 124, "Timed out"
     output = (result.stdout + result.stderr).decode("utf-8", errors="replace")
     return result.returncode, output
 
@@ -52,7 +52,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "TB3UI/1"
 
     def log_message(self, fmt, *args):
-        # Les requêtes de l'interface (10 Hz) noieraient le terminal.
+        # UI requests (10 Hz) would flood the terminal.
         pass
 
     def send(self, code, body, kind="application/json"):
@@ -67,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
     def body(self):
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
-            raise ValueError("Corps trop volumineux")
+            raise ValueError("Request body too large")
         return self.rfile.read(length) if length else b""
 
     def proxy(self, method):
@@ -87,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
                              error.headers.get("Content-Type", "application/json"))
         except (URLError, TimeoutError, ConnectionError) as error:
             reason = getattr(error, "reason", error)
-            return self.send(502, {"error": f"Bridge injoignable : {reason}", "bridge": False})
+            return self.send(502, {"error": f"Bridge unreachable: {reason}", "bridge": False})
 
     def do_GET(self):
         url = urlparse(self.path)
@@ -105,7 +105,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/local/check":
             code, output = robot_ctl("check", timeout=90)
             return self.send(200, {"code": code, "output": output})
-        return self.send(404, {"error": "Introuvable"})
+        return self.send(404, {"error": "Not found"})
 
     def do_POST(self):
         url = urlparse(self.path)
@@ -121,13 +121,13 @@ class Handler(BaseHTTPRequestHandler):
                 if code != 0:
                     break
             return self.send(200, {"code": code, "output": "\n".join(outputs)})
-        return self.send(404, {"error": "Introuvable"})
+        return self.send(404, {"error": "Not found"})
 
 
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", ARGS.port), Handler)
     server.daemon_threads = True
-    print(f"Interface : http://127.0.0.1:{ARGS.port}  (bridge {ARGS.bridge})", flush=True)
+    print(f"UI: http://127.0.0.1:{ARGS.port}  (bridge {ARGS.bridge})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

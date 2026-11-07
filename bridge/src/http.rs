@@ -1,4 +1,4 @@
-//! API HTTP, séparée de la boucle ROS et de la supervision.
+//! HTTP API, separate from the ROS loop and supervision.
 use crate::{
     config::{LEASE, PERIOD, SERVICE_TIMEOUT},
     state::{self, Command, Request as RosRequest, SharedStatus, SharedTelemetry},
@@ -20,7 +20,7 @@ use std::{
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 const MAX_BODY: usize = 512;
-/// Lecteurs HTTP : l'interface interroge l'état pendant qu'un service répond.
+/// HTTP readers: the UI polls status while a service response is pending.
 const READERS: usize = 4;
 const ROUTES: &str = "GET /ready /status /telemetry /topics ; POST /speed /velocity /wheels \
                       /stop /motor_power /sound /reset /watch /unwatch";
@@ -83,14 +83,14 @@ fn respond(request: Request, status: u16, body: Value) {
         .with_status_code(StatusCode(status))
         .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap())
         .with_header(header);
-    // La perte du client n'interrompt jamais la boucle ROS ni son timeout.
+    // Losing the client never interrupts the ROS loop or its timeout.
     let _ = request.respond(response);
 }
 
-/// Corps JSON borné ; un corps vide vaut `{}`.
+/// Bounded JSON body; an empty body is treated as `{}`.
 fn body<T: DeserializeOwned>(request: &mut Request) -> Result<T, String> {
     if request.body_length().unwrap_or(0) > MAX_BODY {
-        return Err("Corps trop volumineux".into());
+        return Err("Request body too large".into());
     }
     let mut bytes = Vec::new();
     let read = request
@@ -98,12 +98,12 @@ fn body<T: DeserializeOwned>(request: &mut Request) -> Result<T, String> {
         .take((MAX_BODY + 1) as u64)
         .read_to_end(&mut bytes);
     if read.is_err() || bytes.len() > MAX_BODY {
-        return Err("Corps de requête invalide".into());
+        return Err("Invalid request body".into());
     }
     if bytes.iter().all(u8::is_ascii_whitespace) {
         bytes = b"{}".to_vec();
     }
-    serde_json::from_slice(&bytes).map_err(|error| format!("JSON invalide : {error}"))
+    serde_json::from_slice(&bytes).map_err(|error| format!("Invalid JSON: {error}"))
 }
 
 fn valid_topic(topic: &str) -> bool {
@@ -114,7 +114,7 @@ fn valid_topic(topic: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '/')
 }
 
-/// Transmet une demande à la boucle ROS et attend sa réponse.
+/// Forward a request to the ROS loop and wait for its response.
 fn forward(
     shared: &Shared,
     request: RosRequest,
@@ -127,14 +127,14 @@ fn forward(
         received_at,
         reply,
     };
-    // File bornée : ne pas accumuler de vieilles commandes de mouvement.
+    // Bounded queue: do not accumulate stale motion commands.
     if shared.commands.try_send(command).is_err() {
-        return Err((503, "Boucle ROS occupée ou arrêtée".into()));
+        return Err((503, "ROS loop busy or stopped".into()));
     }
     match response.recv_timeout(wait) {
         Ok(Ok(message)) => Ok(message),
         Ok(Err(error)) => Err((503, error)),
-        Err(_) => Err((503, "Pas de confirmation ROS à temps".into())),
+        Err(_) => Err((503, "ROS acknowledgement timed out".into())),
     }
 }
 
@@ -235,7 +235,7 @@ fn handle_request(mut request: Request, shared: &Shared) {
     }
     match path.as_str() {
         "/speed" => {
-            let input = parse!(SpeedRequest, "Attendu : {\"speed_mps\": nombre}");
+            let input = parse!(SpeedRequest, "Expected: {\"speed_mps\": number}");
             let velocity = Velocity {
                 linear: input.speed_mps,
                 angular: 0.0,
@@ -245,7 +245,7 @@ fn handle_request(mut request: Request, shared: &Shared) {
         "/velocity" => {
             let input = parse!(
                 VelocityRequest,
-                "Attendu : {\"linear_mps\": nombre, \"angular_rad_s\": nombre}"
+                "Expected: {\"linear_mps\": number, \"angular_rad_s\": number}"
             );
             let velocity = Velocity {
                 linear: input.linear_mps,
@@ -256,17 +256,17 @@ fn handle_request(mut request: Request, shared: &Shared) {
         "/wheels" => {
             let input = parse!(
                 WheelsRequest,
-                "Attendu : {\"left_mps\": nombre, \"right_mps\": nombre}"
+                "Expected: {\"left_mps\": number, \"right_mps\": number}"
             );
             let velocity = Velocity::from_wheels(input.left_mps, input.right_mps);
             motion(shared, request, velocity, received_at, false);
         }
         "/stop" => {
-            parse!(Empty, "Corps vide attendu");
+            parse!(Empty, "Expected an empty body");
             motion(shared, request, Velocity::ZERO, received_at, false);
         }
         "/motor_power" => {
-            let input = parse!(MotorPowerRequest, "Attendu : {\"enabled\": true|false}");
+            let input = parse!(MotorPowerRequest, "Expected: {\"enabled\": true|false}");
             action(
                 shared,
                 request,
@@ -275,21 +275,21 @@ fn handle_request(mut request: Request, shared: &Shared) {
             );
         }
         "/sound" => {
-            let input = parse!(SoundRequest, "Attendu : {\"value\": 0..5}");
+            let input = parse!(SoundRequest, "Expected: {\"value\": 0..5}");
             if input.value > 5 {
-                respond(request, 400, json!({"error": "Son entre 0 et 5"}));
+                respond(request, 400, json!({"error": "Sound must be between 0 and 5"}));
                 return;
             }
             action(shared, request, RosRequest::Sound(input.value), received_at);
         }
         "/reset" => {
-            parse!(Empty, "Corps vide attendu");
+            parse!(Empty, "Expected an empty body");
             action(shared, request, RosRequest::Reset, received_at);
         }
         "/watch" | "/unwatch" => {
-            let input = parse!(TopicRequest, "Attendu : {\"topic\": \"/nom\"}");
+            let input = parse!(TopicRequest, "Expected: {\"topic\": \"/name\"}");
             if !valid_topic(&input.topic) {
-                respond(request, 400, json!({"error": "Nom de topic ROS invalide"}));
+                respond(request, 400, json!({"error": "Invalid ROS topic name"}));
                 return;
             }
             let ros_request = if path == "/watch" {
@@ -329,7 +329,7 @@ pub fn start(
                     Ok(Some(request)) => handle_request(request, &shared),
                     Ok(None) => {}
                     Err(error) => {
-                        eprintln!("Serveur HTTP arrêté : {error}");
+                        eprintln!("HTTP server stopped: {error}");
                         running.store(false, Ordering::SeqCst);
                     }
                 }

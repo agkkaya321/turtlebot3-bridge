@@ -1,4 +1,4 @@
-"""Parcourir un carré de 40 cm avec des états : avancer, tourner, recommencer 4 fois."""
+"""Drive a 40 cm square using states: move forward, turn, and repeat four times."""
 import math
 import os
 import sys
@@ -23,10 +23,10 @@ class Carre(Robot):
                 self.goto("tourne")
         elif self.state == "tourne":
             self.turn(ROTATION)
-            # Durée théorique d'un quart de tour ; l'odométrie (heading_deg) est plus précise.
+            # Theoretical quarter-turn duration; odometry (heading_deg) is more accurate.
             if self.after((math.pi / 2) / ROTATION):
                 self.cotes += 1
-                self.log(f"côté {self.cotes} terminé")
+                self.log(f"side {self.cotes} completed")
                 if self.cotes == 4:
                     self.finish()
                 self.goto("avance")

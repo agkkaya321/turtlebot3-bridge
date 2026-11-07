@@ -1,4 +1,4 @@
-"""Avancer tout droit à 5 cm/s pendant 3 secondes."""
+"""Move straight ahead at 5 cm/s for 3 seconds."""
 import os
 import sys
 

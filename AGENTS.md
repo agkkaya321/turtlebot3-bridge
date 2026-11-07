@@ -54,12 +54,45 @@
   rapporte des validations en conteneur et contre un faux robot, mais pas encore
   sur le robot réel. Ne pas déduire une validation matérielle de la présence
   du binaire ou de tests logiciels réussis.
-- `client/next_step/main.py` contient actuellement des appels de sons et
-  n'intègre pas encore la machine à états.
-- Les états présents sont `initial`, `posture_checking`, `moving_backward`,
-  `laser_aiming_left` et `laser_aiming_right`. Leurs actions sont encore des
-  messages de console ; leurs noms ne prouvent pas un comportement fonctionnel.
-  La logique de transition reste à terminer et à vérifier avant intégration.
+- `client/next_step/main.py` conserve la FSM dans `self.fsm` et appelle sa
+  méthode `loop()` à chaque cycle de `Robot` (10 Hz par défaut).
+- Les états présents sont `initial`, `posture_checking`, `user_follow`,
+  `laser_aiming_left` et `laser_aiming_right`. `user_follow` remplace
+  `moving_backward` (identifiant 1) et commande désormais les déplacements.
+  Les actions de posture et de laser restent des messages de console.
+  Chaque état dispose de `enter()`, `loop()`, `exit()` et de `self.robot`.
+  Le mécanisme de transition par identifiant est intégré ; les conditions de
+  transition métier restent à définir.
+- Le suivi LiDAR utilise `client/next_step/lidar.py` pour extraire une ou deux
+  jambes candidates dans un demi-disque avant de rayon strictement inférieur
+  à 3 m depuis le LiDAR (`x > 0`, sans limite latérale supplémentaire).
+  La limite radiale est réglée par `ROI_MAX_DISTANCE`. `UserFollowState` applique
+  une distance de Manhattan, une moyenne sur 100 cycles (fenêtre partielle au
+  démarrage), un gain de 0,5 et une consigne de distance de 1,5 m. La vitesse
+  est bornée par `Robot.max_wheel_speed()`.
+- La sélection LiDAR compare les paires de candidats de largeur 5–20 cm :
+  écart de 10–65 cm, différence de profondeur ≤40 cm, écart latéral ≥8 cm.
+  Elle choisit la paire la plus proche à l'acquisition, puis la plus proche
+  de la dernière cible observée (saut maximal 50 cm). Deux scores séparés
+  de moins de 15 cm restent ambigus. Une jambe seule peut être suivie près
+  de la cible précédente ; sans historique, elle doit être l'unique candidat.
+  `TargetTracker` oublie sa cible après 1 s sans observation acceptée.
+  Absence de cible, ambiguïté ou scan vieux de plus de 0,5 s : arrêt et buffer
+  de distance vidé, même si la position précédente est encore mémorisée.
+  L'entrée et la sortie de l'état remettent consigne, mémoire et buffer à zéro.
+  `Main.setup()` active cet état ; lancer le programme peut donc déplacer
+  le robot. Un premier lancement sur le robot est rapporté par l'utilisateur,
+  avec des tours dépassant 100 ms ; la détection des jambes et le suivi physique
+  restent à confirmer. Tests automatisés sur scans synthétiques et sélection
+  vérifiée sur des centres retranscrits des logs (pas de replay de scans réels) ; pas
+  d'identification de personne ni d'évitement d'obstacles intégré.
+- Le journal de `UserFollowState` est activé par défaut, une fois par seconde
+  (`DEBUG`, `DEBUG_INTERVAL`) : une ligne indiquant jambes détectées
+  ou non, distance euclidienne instantanée à la cible et ajustement
+  (avance/recule/position maintenue). En simulation, le message le précise.
+  Les détails restent en mémoire (`diagnostics`, `r_smooth`, `raw_speed`,
+  `speed`). `Main.verbose = False` masque les diagnostics techniques et les
+  avertissements de durée ; les erreurs de connexion et d'arrêt restent visibles.
 - Caméra confirmée par l'utilisateur : **Logitech C270 HD**, branchée en USB
   au Raspberry Pi du robot pour filmer la personne qui s'entraîne. La série 2,
   tâche 6, utilise ce modèle avec `usb_cam` et `pixel_format:=mjpeg2rgb` :

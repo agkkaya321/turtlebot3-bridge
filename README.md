@@ -25,7 +25,8 @@ Mac                                                     Raspberry Pi (TurtleBot3
 
 ## Démarrage rapide
 
-**1. Compiler** (sur le Mac, avec internet et Docker Desktop lancé, une seule fois) :
+**1. Compiler** (sur le Mac, avec internet et Docker Desktop lancé, au premier lancement
+et après chaque modification du bridge Rust) :
 
 ```bash
 ./start.sh build
@@ -62,6 +63,23 @@ cd client
 python3 exemples/capteurs.py --dry-run   # lire les capteurs sans bouger
 python3 exemples/eviter_obstacles.py
 ```
+
+## Après une mise à jour du code
+
+**Git synchronise les sources, pas le binaire compilé** : `bridge/dist/` est ignoré
+par Git. Après avoir récupéré des modifications du bridge Rust :
+
+1. Démarrer Docker Desktop et exécuter `./start.sh build` avec internet, avant de
+   rejoindre le réseau du robot.
+2. Sur le réseau du robot, lancer `./start.sh` pour déployer le nouveau binaire.
+
+Si le lanceur affiche **« Sources changed since the last build »**, recompiler avant
+de continuer : `./start.sh` ne recompile pas automatiquement. Une interface récente
+avec un ancien binaire peut afficher une erreur « GET … » à la place de la caméra,
+car les routes HTTP ne correspondent plus.
+
+Une modification uniquement dans `client/` ou `ui/` ne nécessite pas de recompiler
+le bridge.
 
 ## Commandes de `start.sh`
 

@@ -1,5 +1,5 @@
-//! Conversion des messages capteurs en JSON pour l'interface.
-//! Les valeurs non finies (LiDAR hors portée, etc.) deviennent null.
+//! Convert sensor messages to JSON for the UI.
+//! Non-finite values (out-of-range LiDAR, etc.) become null.
 use r2r::{
     geometry_msgs::msg::{Quaternion, Vector3},
     nav_msgs::msg::Odometry,
@@ -8,7 +8,7 @@ use r2r::{
 };
 use serde_json::{json, Value};
 
-/// Arrondi à `digits` décimales ; null si la valeur n'est pas finie.
+/// Round to `digits` decimal places; return null if the value is not finite.
 fn num(value: f64, digits: i32) -> Value {
     if !value.is_finite() {
         return Value::Null;
@@ -53,7 +53,7 @@ pub fn sensor_state(message: &SensorState) -> Value {
 }
 
 pub fn battery(message: &BatteryState) -> Value {
-    // ROS : percentage entre 0 et 1, NaN si inconnu.
+    // ROS: percentage is between 0 and 1, NaN if unknown.
     json!({
         "voltage_v": num(message.voltage.into(), 2),
         "percentage": num(message.percentage.into(), 3),
@@ -85,7 +85,7 @@ pub fn joint_states(message: &JointState) -> Value {
 
 pub fn scan(message: &LaserScan) -> Value {
     let (low, high) = (message.range_min, message.range_max);
-    // Une distance hors des bornes du capteur n'est pas une mesure.
+    // A distance outside the sensor limits is not a valid measurement.
     let ranges: Vec<Value> = message
         .ranges
         .iter()
@@ -121,7 +121,7 @@ mod tests {
         assert!(ranges[0].is_null() && ranges[1].is_null() && ranges[2].is_null());
         assert_eq!(ranges[3], json!(1.235));
         assert!(ranges[4].is_null());
-        // Le JSON produit reste valide (pas de NaN/Infinity littéraux).
+        // The resulting JSON remains valid (no literal NaN/Infinity values).
         assert!(serde_json::from_str::<Value>(&body.to_string()).is_ok());
     }
 

@@ -215,7 +215,7 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
-const L = 0.160; // écartement des roues du Burger (m)
+const L = 0.160; // Burger wheel separation (m)
 let limits = { wheel_mps: 0.10, angular_rad_s: 1.25 };
 let isReady = false;
 let telemetry = null;
@@ -233,7 +233,7 @@ async function api(path, body) {
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   const response = await fetch(path, options);
   let data = {};
-  try { data = await response.json(); } catch (_) { /* corps non JSON */ }
+  try { data = await response.json(); } catch (_) { /* non-JSON body */ }
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
 }
@@ -259,7 +259,7 @@ function ageLabel(id, name) {
   el.style.color = entry.age_ms < 2000 ? "var(--muted)" : "var(--warn)";
 }
 
-/* ---------- État ---------- */
+/* ---------- Status ---------- */
 async function pollStatus() {
   try {
     const status = await api("/api/status");
@@ -281,7 +281,7 @@ function setPill(id, kind, text) {
   el.lastElementChild.textContent = text;
 }
 
-/* ---------- Télémétrie ---------- */
+/* ---------- Telemetry ---------- */
 async function pollTelemetry() {
   try {
     telemetry = await api("/api/telemetry");
@@ -318,7 +318,7 @@ function renderBattery() {
   ageLabel("#batteryAge", "battery");
   const volts = b ? b.voltage_v : s ? s.battery_v : null;
   let pct = b && b.percentage !== null ? b.percentage : null;
-  if (pct !== null && pct > 1.0) pct /= 100; // certaines versions publient 0–100
+  if (pct !== null && pct > 1.0) pct /= 100; // some versions publish 0–100
   fillTable("#batteryTable", [
     ["Tension", fmt(volts, 2, " V")],
     ["Charge", pct === null ? "—" : `${Math.round(pct * 100)} %`],
@@ -362,7 +362,7 @@ function renderImu() {
   fillTable("#jointTable", joints ? joints.name.map((n, i) => [n, `${fmt(joints.position_rad[i], 2)} rad · ${fmt(joints.velocity_rad_s[i], 2)} rad/s`]) : [["/joint_states", "—"]]);
 }
 
-/* ---------- Odométrie ---------- */
+/* ---------- Odometry ---------- */
 const path = [];
 function renderOdom() {
   const o = sensor("odom");
@@ -395,7 +395,7 @@ function prepareCanvas(canvas) {
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 function drawRobot(ctx, x, y, heading, size) {
-  // heading : angle écran, 0 = vers le haut, sens horaire positif
+  // heading: screen angle, 0 = upward, clockwise is positive
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(heading);
@@ -413,7 +413,7 @@ function drawOdom(o) {
   const span = Math.max(maxX - minX, maxY - minY, 0.5);
   const scale = Math.min(width, height) * 0.8 / span;
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  // Repère ROS : x vers le haut de l'écran, y vers la gauche.
+  // ROS frame: x points up on screen, y points left.
   const toScreen = (p) => [width / 2 - (p.y - cy) * scale, height / 2 - (p.x - cx) * scale];
   ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
   const grid = span > 4 ? 1 : span > 1.5 ? 0.5 : 0.1;
@@ -465,7 +465,7 @@ function drawLidar() {
     const norm = Math.atan2(Math.sin(a), Math.cos(a));
     if (Math.abs(norm) <= Math.PI / 12 && (front === null || r < front)) front = r;
     if (r > maxRange) return;
-    // Repère robot : 0 rad devant (haut de l'écran), angles positifs à gauche.
+    // Robot frame: 0 rad is forward (up on screen), positive angles point left.
     const x = cxs - Math.sin(a) * r * scale, y = cys - Math.cos(a) * r * scale;
     ctx.fillStyle = r < 0.25 ? near : far;
     ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
@@ -474,7 +474,7 @@ function drawLidar() {
   $("#lidarInfo").textContent = `${valid.length}/${scan.ranges.length} mesures valides · obstacle devant (±15°) : ${front === null ? "aucun" : fmt(front, 2, " m")}`;
 }
 
-/* ---------- Conduite ---------- */
+/* ---------- Driving ---------- */
 const held = new Set();
 const keyMap = { ArrowUp: "f", KeyW: "f", ArrowDown: "b", KeyS: "b", ArrowLeft: "l", KeyA: "l", ArrowRight: "r", KeyD: "r" };
 let wheelsHeld = false;
@@ -500,7 +500,7 @@ function desired() {
   const left = /l/.test(dirs) ? 1 : 0, right = /r/.test(dirs) ? 1 : 0;
   let linear = (fwd - back) * Number($("#linSpeed").value);
   let angular = (left - right) * Number($("#angSpeed").value);
-  // Garder chaque roue sous la limite en réduisant proportionnellement.
+  // Keep each wheel within its limit by scaling both speeds proportionally.
   const wheel = Math.abs(linear) + Math.abs(angular) * L / 2;
   if (wheel > limits.wheel_mps) {
     const k = limits.wheel_mps / wheel;
@@ -535,7 +535,7 @@ async function driveTick() {
     $("#driveMsg").textContent = "";
   } catch (error) {
     release(`Commande refusée : ${error.message}`);
-    moving = true; // provoque un stop explicite au tick suivant
+    moving = true; // trigger an explicit stop on the next tick
   } finally {
     inflight = false;
   }
@@ -656,7 +656,7 @@ function renderWatched() {
     <pre>${w.data === null ? "—" : escapeHtml(JSON.stringify(w.data, null, 2))}</pre>`).join("");
 }
 
-/* ---------- Système (SSH via start.sh) ---------- */
+/* ---------- System (SSH via start.sh) ---------- */
 async function system(label, path, method = "GET", confirmText) {
   if (confirmText && !confirm(confirmText)) return;
   $("#sysOut").textContent = `${label}…`;

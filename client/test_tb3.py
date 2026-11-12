@@ -1,4 +1,4 @@
-"""Tests locaux de tb3.Robot, sans réseau, ROS ni commande moteur."""
+"""Local tb3.Robot tests, without networking, ROS, or motor commands."""
 import math
 import unittest
 from unittest.mock import patch
@@ -44,7 +44,7 @@ class FakeBridge:
         return self.ready_answers.pop(0) if self.ready_answers else "ready"
 
     def status(self):
-        return {"status": "not ready", "reason": "Moteurs désactivés"}
+        return {"status": "not ready", "reason": "Motors disabled"}
 
     def telemetry(self):
         return self.data
@@ -80,6 +80,30 @@ class Forward(tb3.Robot):
 @patch("tb3.time.sleep")
 @patch("builtins.print")
 class RunTests(unittest.TestCase):
+    def test_cycle_timings_separate_read_loop_and_send(self, *_):
+        robot = make(Forward, ticks=1)
+        with patch("tb3.time.perf_counter", side_effect=[0, 0.01, 0.01, 0.03, 0.03, 0.06]):
+            robot.run()
+        self.assertAlmostEqual(robot.cycle_timings_ms["HTTP_read"], 10)
+        self.assertAlmostEqual(robot.cycle_timings_ms["loop"], 20)
+        self.assertAlmostEqual(robot.cycle_timings_ms["HTTP_send"], 30)
+        self.assertEqual(robot.cycle_timings_ms["ready"], 0)
+
+    def test_slow_cycle_log_includes_timings_and_stays_rate_limited(self, *_):
+        robot = Forward()
+        robot.cycle_timings_ms = {"HTTP_read": 65, "loop": 2, "HTTP_send": 53}
+        with patch.object(robot, "log") as log, patch(
+                "tb3.time.monotonic", side_effect=[0.12, 0.14, 6.2]):
+            robot._pace(0, 0.1)
+            robot._pace(0.01, 0.1)
+            robot._pace(6, 0.1)
+        self.assertEqual(log.call_count, 2)
+        message = log.call_args_list[0].args[0]
+        self.assertIn("120 ms for a 100 ms budget", message)
+        self.assertIn("HTTP_read=65.0 ms", message)
+        self.assertIn("loop=2.0 ms", message)
+        self.assertIn("HTTP_send=53.0 ms", message)
+
     def test_loop_is_mandatory(self, *_):
         class NoLoop(tb3.Robot):
             pass
@@ -139,7 +163,7 @@ class RunTests(unittest.TestCase):
         robot.bridge.velocity_errors = [BridgeError(503, "not ready")]
         robot.bridge.ready_answers = ["ready", "not ready", "ready"]
         robot.run()
-        # Tour 0 refusé → pause ; tour 1 encore not ready ; reprise au tour 2.
+        # Cycle 0 rejected → pause; cycle 1 still not ready; resume on cycle 2.
         self.assertEqual(calls, [0, 2, 3, 4])
         self.assertEqual(robot.bridge.sent, [(0.0, 0.0)] * 3)
 
@@ -254,7 +278,7 @@ class TimeTests(unittest.TestCase):
         self.assertFalse(robot.after(1.5))
         robot.t = 11.5
         self.assertTrue(robot.after(1.5))
-        robot.goto("tourne")              # même état : le temps continue
+        robot.goto("tourne")              # Same state: elapsed time keeps increasing.
         self.assertEqual(robot.state_time, 1.5)
 
 

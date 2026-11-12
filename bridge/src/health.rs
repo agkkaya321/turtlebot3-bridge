@@ -1,4 +1,4 @@
-//! Readiness matérielle observée, distincte de la santé des processus ROS.
+//! Observed hardware readiness, separate from ROS process health.
 use crate::config::TELEMETRY_TIMEOUT;
 use r2r::{nav_msgs::msg::Odometry, turtlebot3_msgs::msg::SensorState};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -25,7 +25,7 @@ pub(crate) fn sample_time(stamp: &r2r::builtin_interfaces::msg::Time) -> Option<
     if stamp.nanosec >= 1_000_000_000 || !(-0.1..1.0).contains(&age) {
         return None;
     }
-    // Compter aussi le temps passé en transport, pas seulement depuis réception.
+    // Include time spent in transit, not just time since receipt.
     Instant::now().checked_sub(Duration::from_secs_f64(age.max(0.0)))
 }
 
@@ -47,7 +47,7 @@ impl Health {
     pub fn sensors(&mut self, message: &SensorState) {
         self.sensor_seen = sample_time(&message.header.stamp);
         self.torque = message.torque;
-        // Vérification de cohérence seulement, pas une estimation d'autonomie.
+        // Consistency check only, not a remaining-runtime estimate.
         self.battery_valid = message.battery.is_finite() && message.battery > 0.0;
     }
 
@@ -57,17 +57,17 @@ impl Health {
 
     pub fn reason(&self, subscribers: usize) -> Option<&'static str> {
         if !fresh(self.sensor_seen) {
-            Some("État du robot absent ou trop ancien")
+            Some("Robot state missing or stale")
         } else if !fresh(self.odom_seen) {
-            Some("Odométrie absente ou trop ancienne")
+            Some("Odometry missing or stale")
         } else if subscribers == 0 {
-            Some("Aucun abonné compatible au topic de vitesse")
+            Some("No compatible subscriber to the velocity topic")
         } else if !self.odom_valid {
-            Some("Odométrie invalide")
+            Some("Invalid odometry")
         } else if !self.torque {
-            Some("Moteurs désactivés : intervention nécessaire")
+            Some("Motors disabled: intervention required")
         } else if !self.battery_valid {
-            Some("Mesure de batterie invalide")
+            Some("Invalid battery measurement")
         } else {
             None
         }

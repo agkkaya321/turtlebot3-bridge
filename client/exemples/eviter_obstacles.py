@@ -1,4 +1,4 @@
-"""Avancer et tourner à gauche dès qu'un obstacle est à moins de 30 cm devant."""
+"""Move forward and turn left when an obstacle is less than 30 cm ahead."""
 import os
 import sys
 
@@ -13,13 +13,13 @@ class EviterObstacles(Robot):
     def loop(self):
         devant = self.front_distance()
         if devant is None:
-            self.stop()               # pas de LiDAR récent : ne pas rouler à l'aveugle
+            self.stop()               # No recent LiDAR data: do not drive blind.
         elif devant < 0.30:
             self.turn(0.8)
         else:
             self.forward(0.08)
         if self.every(1):
-            self.log(f"devant : {devant} m")
+            self.log(f"front: {devant} m")
 
 
 if __name__ == "__main__":

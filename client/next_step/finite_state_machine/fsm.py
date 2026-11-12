@@ -1,26 +1,31 @@
-from client.next_step.finite_state_machine.states.laser_aiming_left_state import LaserAimingLeftState
-from client.next_step.finite_state_machine.states.laser_aiming_right_state import LaserAimingRightState
-from client.next_step.finite_state_machine.states.moving_backward_state import MovingBackwardState
-from client.next_step.finite_state_machine.states.posture_checking_state import PostureCheckingState
-from state import State
+from .states.laser_aiming_left_state import LaserAimingLeftState
+from .states.laser_aiming_right_state import LaserAimingRightState
+from .states.user_follow_state import UserFollowState
+from .states.posture_checking_state import PostureCheckingState
+from .state import State
 
-states = {
-    0 : State("initial"),
-    1 : PostureCheckingState(),
-    2 : MovingBackwardState(),
-    3 : LaserAimingLeftState(),
-    4 : LaserAimingRightState(),
-}
 
 class FiniteStateMachine:
-    def __init__(self):
-        self.current_state = states[0]
-        self.states = states
+    def __init__(self, robot):
+        self.robot = robot
+        self.states = {
+            0: State("initial", robot),
+            1: UserFollowState(robot),
+            2: PostureCheckingState(robot),
+            3: LaserAimingLeftState(robot),
+            4: LaserAimingRightState(robot),
+        }
+        self.current_state = self.states[0]
+        self.current_state.enter()
+
+    def loop(self):
+        """Run one cycle of the current state at the Robot.loop() frequency."""
+        self.current_state.loop()
 
     def transition(self, new_state):
         if new_state in self.states:
             self.current_state.exit()
-            self.current_state = new_state
+            self.current_state = self.states[new_state]
             self.current_state.enter()
 
     def get_current_state(self):

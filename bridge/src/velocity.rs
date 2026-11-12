@@ -1,8 +1,8 @@
-//! Traduction des consignes (robot ou roues) en message ROS.
+//! Convert robot or wheel velocity commands into ROS messages.
 use crate::config::WHEEL_SEPARATION;
 use r2r::geometry_msgs::msg::{Twist, TwistStamped};
 
-/// Consigne du robot entier : m/s vers l'avant et rad/s (positif = gauche).
+/// Whole-robot command: forward speed in m/s and rad/s (positive = left).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Velocity {
     pub linear: f64,
@@ -15,7 +15,7 @@ impl Velocity {
         angular: 0.0,
     };
 
-    /// Robot différentiel : v = (g + d) / 2, ω = (d - g) / L.
+    /// Differential drive: v = (left + right) / 2, ω = (right - left) / L.
     pub fn from_wheels(left: f64, right: f64) -> Self {
         Self {
             linear: (left + right) / 2.0,
@@ -28,7 +28,7 @@ impl Velocity {
         (self.linear - half, self.linear + half)
     }
 
-    /// Vitesses des roues arrondies au 1/10 de mm/s, pour l'affichage.
+    /// Wheel speeds rounded to 0.1 mm/s for display.
     pub fn rounded_wheels(&self) -> (f64, f64) {
         let (left, right) = self.wheels();
         let round = |x: f64| (x * 1e4).round() / 1e4;
@@ -39,22 +39,22 @@ impl Velocity {
         self.linear == 0.0 && self.angular == 0.0
     }
 
-    /// Chaque roue reste dans ±max_speed ; la marge absorbe l'arrondi de from_wheels.
+    /// Each wheel stays within ±max_speed; the tolerance accounts for from_wheels rounding.
     pub fn validate(&self, max_speed: f64) -> Result<(), String> {
         if !self.linear.is_finite() || !self.angular.is_finite() {
-            return Err("Vitesses finies requises".into());
+            return Err("Speeds must be finite".into());
         }
         let (left, right) = self.wheels();
         if left.abs() > max_speed + 1e-9 || right.abs() > max_speed + 1e-9 {
             return Err(format!(
-                "Vitesse de roue limitée à ±{max_speed:.2} m/s (gauche {left:.3}, droite {right:.3})"
+                "Wheel speed limited to ±{max_speed:.2} m/s (left {left:.3}, right {right:.3})"
             ));
         }
         Ok(())
     }
 }
 
-// Un seul type ROS est publié sur le topic choisi.
+// Only one ROS message type is published on the selected topic.
 pub enum VelocityPublisher {
     Stamped(r2r::Publisher<TwistStamped>),
     Plain(r2r::Publisher<Twist>),
@@ -71,7 +71,7 @@ impl VelocityPublisher {
     pub fn publish(&self, velocity: Velocity, clock: &mut r2r::Clock) -> r2r::Result<()> {
         let mut twist = Twist::default();
         twist.linear.x = velocity.linear;
-        // Les autres axes restent à zéro : robot différentiel sur le sol.
+        // Other axes remain zero: differential-drive robot on the ground.
         twist.angular.z = velocity.angular;
         match self {
             Self::Plain(p) => p.publish(&twist),
@@ -97,7 +97,7 @@ mod tests {
         assert!((left + 0.03).abs() < 1e-12 && (right - 0.05).abs() < 1e-12);
         assert!(
             velocity.angular > 0.0,
-            "roue droite plus rapide = tourner à gauche"
+            "faster right wheel = turn left"
         );
     }
 

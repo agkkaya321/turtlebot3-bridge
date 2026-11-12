@@ -1,4 +1,4 @@
-"""Tests locaux du client, sans réseau, ROS ou commande moteur."""
+"""Local client tests, without networking, ROS, or motor commands."""
 import io
 import json
 import math
@@ -19,8 +19,8 @@ class RobotStatusTests(unittest.TestCase):
 
     def test_status_includes_reason_and_supervisor(self):
         robot = BridgeClient()
-        expected = {"status": "not ready", "reason": "Moteurs désactivés",
-                    "supervisor": "Bringup supervisé actif", "ros_alive": True}
+        expected = {"status": "not ready", "reason": "Motors disabled",
+                    "supervisor": "Supervised bringup active", "ros_alive": True}
         robot._http = Mock()
         robot._http.open.return_value = io.BytesIO(json.dumps(expected).encode())
         self.assertEqual(robot.status(), expected)
@@ -28,7 +28,7 @@ class RobotStatusTests(unittest.TestCase):
     def test_unreachable_bridge_is_not_reported_as_a_robot_status(self):
         robot = BridgeClient()
         robot._http = Mock()
-        robot._http.open.side_effect = URLError("Connexion refusée")
+        robot._http.open.side_effect = URLError("Connection refused")
         with self.assertRaises(URLError):
             robot.ready()
 

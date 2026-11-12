@@ -1,8 +1,8 @@
-from client.next_step.finite_state_machine.state import State
+from ..state import State
 
 class PostureCheckingState(State):
-    def __init__(self):
-        super().__init__("posture_checking")
+    def __init__(self, robot=None):
+        super().__init__("posture_checking", robot)
 
     def enter(self):
         print("Entering posture_checking state")

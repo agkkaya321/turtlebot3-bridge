@@ -31,9 +31,9 @@ fn main() -> BridgeResult<()> {
     let running = Arc::new(AtomicBool::new(true));
     let stop_flag = running.clone();
     ctrlc::set_handler(move || stop_flag.store(false, Ordering::SeqCst))?;
-    let status: SharedStatus = Arc::new(Mutex::new(Status::waiting("Initialisation ROS")));
+    let status: SharedStatus = Arc::new(Mutex::new(Status::waiting("Initializing ROS")));
     let telemetry: SharedTelemetry = Arc::new(Mutex::new(Telemetry::default()));
-    // File courte : la boucle ROS en vide plusieurs par cycle.
+    // Short queue: the ROS loop drains several entries per cycle.
     let (commands, receiver) = mpsc::sync_channel(8);
     // Caméra : thread d'encodage indépendant, pilote usb_cam géré par la boucle ROS.
     let mut camera = camera::Camera::from_env(&config.namespace, running.clone());
@@ -48,7 +48,7 @@ fn main() -> BridgeResult<()> {
     )?;
     let mut supervisor = Supervisor::new();
     eprintln!(
-        "Bridge http://{} -> {} ; roues limitées à ±{} m/s ; GET /ready pour l'état",
+        "Bridge http://{} -> {}; wheel limit ±{} m/s; GET /ready for status",
         config.bind, config.velocity_topic, config.max_speed
     );
     eprintln!("{}", camera.describe());
@@ -65,11 +65,11 @@ fn main() -> BridgeResult<()> {
         ) {
             Ok(()) => break,
             Err(error) => {
-                eprintln!("Erreur ROS, nouvel essai dans 2 s : {error}");
-                let mut failure = Status::waiting(format!("Erreur ROS : {error}"));
+                eprintln!("ROS error, retrying in 2 s: {error}");
+                let mut failure = Status::waiting(format!("ROS error: {error}"));
                 failure.supervisor = supervisor.description.clone();
                 state::update(&status, failure);
-                // HTTP répond toujours not ready pendant la reconstruction du nœud.
+                // HTTP keeps reporting not ready while the node is rebuilt.
                 let retry = Instant::now() + Duration::from_secs(2);
                 while running.load(Ordering::SeqCst) && Instant::now() < retry {
                     thread::sleep(config::PERIOD);

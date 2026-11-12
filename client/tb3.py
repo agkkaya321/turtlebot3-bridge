@@ -1,4 +1,4 @@
-"""Programmer le TurtleBot3 comme un Arduino : setup() une fois, loop() en boucle.
+"""Program the TurtleBot3 like an Arduino: setup() once, then loop() repeatedly.
 
     from tb3 import Robot
 
@@ -8,11 +8,11 @@
 
     Avance().run()
 
-À chaque tour (10 par seconde par défaut), run() lit tous les capteurs en une
-requête, appelle loop(), puis envoie la consigne de mouvement au bridge. Une
-consigne reste valable jusqu'à la suivante : run() la renouvelle à chaque tour,
-le bridge arrêtant le robot si elle n'arrive plus pendant 500 ms.
-Guide complet : docs/GUIDE_ROBOT.md.
+Each cycle (10 per second by default), run() reads all sensors in one request,
+calls loop(), and sends the motion command to the bridge. A command stays
+active until replaced: run() renews it each cycle, and the bridge stops the
+robot if no command arrives for 500 ms.
+Full guide: docs/GUIDE_ROBOT.md.
 """
 
 import abc
@@ -26,9 +26,9 @@ import time
 from robot import SOUNDS, BridgeClient, BridgeError, _number
 
 WHEEL_SEPARATION = 0.160
-# Limite par défaut du bridge (MAX_SPEED_MPS), utilisée tant que /telemetry ne l'a pas donnée.
+# Default bridge limit (MAX_SPEED_MPS), used until /telemetry provides it.
 DEFAULT_WHEEL_LIMIT = 0.10
-# Coupure réseau tolérée (s) avant d'abandonner ; le robot, lui, s'arrête après 500 ms.
+# Network outage tolerated before aborting (s); the robot stops after 500 ms.
 OFFLINE_LIMIT = 2.0
 
 
@@ -37,18 +37,20 @@ def _interrupt(signum, frame):
 
 
 class Robot(abc.ABC):
-    """Classe de base : hériter, écrire loop() (obligatoire) et setup() (facultatif)."""
+    """Base class: subclass it and implement loop() (required) and setup() (optional)."""
+
+    verbose = True  # Technical diagnostics; errors are always displayed.
 
     def __init__(self, url="http://127.0.0.1:8000", hz=10, dry_run=False):
         hz = _number(hz, "hz")
         if not 1 <= hz <= 50:
-            raise ValueError("hz doit être compris entre 1 et 50.")
+            raise ValueError("hz must be between 1 and 50.")
         self.bridge = BridgeClient(url)
         self.hz = hz
         self.dry_run = bool(dry_run)
-        self.t = 0.0          # secondes depuis le premier tour
-        self.tick = 0         # numéro du tour en cours
-        self.state = None     # état courant, changé par goto()
+        self.t = 0.0          # Seconds since the first cycle.
+        self.tick = 0         # Current cycle number.
+        self.state = None     # Current state, changed by goto().
         self._state_since = 0.0
         self._start = None
         self._telemetry = {}
@@ -58,38 +60,40 @@ class Robot(abc.ABC):
         self._every = {}
         self._finished = False
         self._paused = False
-        self._offline_since = {}   # par type de requête : lecture ou envoi
+        self._offline_since = {}   # By request type: read or send.
         self._last_overrun = -math.inf
+        self.cycle_timings_ms = {}
 
-    # --- À écrire dans la classe fille ------------------------------------
+    # --- Override in subclasses ------------------------------------
 
     def setup(self):
-        """Appelée une fois avant le premier tour. Facultative."""
+        """Called once before the first cycle. Optional."""
 
     @abc.abstractmethod
     def loop(self):
-        """Appelée à chaque tour : lire les capteurs, choisir une consigne. Ne pas bloquer."""
+        """Called each cycle: read sensors and choose a command. Do not block."""
 
-    # --- Exécution --------------------------------------------------------
+    # --- Execution --------------------------------------------------------
 
     @classmethod
     def main(cls):
-        """Lancer depuis la ligne de commande : --url, --hz, --dry-run."""
+        """Run from the command line: --url, --hz, --dry-run."""
         parser = argparse.ArgumentParser(description=cls.__doc__)
         parser.add_argument("--url", default="http://127.0.0.1:8000")
         parser.add_argument("--hz", type=float, default=10)
         parser.add_argument("--dry-run", action="store_true",
-                            help="Lire les capteurs et afficher les consignes sans bouger")
+                            help="Read sensors and display commands without moving")
         args = parser.parse_args()
         cls(url=args.url, hz=args.hz, dry_run=args.dry_run).run()
 
     def run(self):
-        """Boucle principale. Ctrl+C, finish() ou une erreur arrêtent le robot."""
+        """Main loop. Ctrl+C, finish(), or an error stops the robot."""
         name = type(self).__name__
-        mode = " (dry-run : aucun mouvement)" if self.dry_run else ""
-        print(f"{name} : bridge {self.bridge.url}, {self.hz:g} Hz{mode}")
+        mode = " (dry run: no movement)" if self.dry_run else ""
+        if self.verbose:
+            print(f"{name} : bridge {self.bridge.url}, {self.hz:g} Hz{mode}")
         if threading.current_thread() is threading.main_thread():
-            # kill / fermeture du terminal : même arrêt propre que Ctrl+C.
+            # kill / terminal closure: perform the same clean shutdown as Ctrl+C.
             signal.signal(signal.SIGTERM, _interrupt)
         try:
             if not self.dry_run:
@@ -104,12 +108,22 @@ class Robot(abc.ABC):
             while not self._finished:
                 began = time.monotonic()
                 self.t = began - self._start
+                self.cycle_timings_ms = {"HTTP_read": 0.0, "ready": 0.0,
+                                         "loop": 0.0, "HTTP_send": 0.0}
+                phase = time.perf_counter()
                 self._network(self._refresh)
+                self.cycle_timings_ms["HTTP_read"] = (time.perf_counter() - phase) * 1000
                 if self._paused:
+                    phase = time.perf_counter()
                     self._check_resume()
+                    self.cycle_timings_ms["ready"] = (time.perf_counter() - phase) * 1000
                 if not self._paused:
+                    phase = time.perf_counter()
                     self.loop()
+                    self.cycle_timings_ms["loop"] = (time.perf_counter() - phase) * 1000
+                    phase = time.perf_counter()
                     self._network(self._send)
+                    self.cycle_timings_ms["HTTP_send"] = (time.perf_counter() - phase) * 1000
                 self.tick += 1
                 self._pace(began, period)
                 next_tick += period
@@ -119,76 +133,76 @@ class Robot(abc.ABC):
                 else:
                     next_tick = time.monotonic()
         except KeyboardInterrupt:
-            print("\nArrêt demandé (Ctrl+C).")
+            print("\nStop requested (Ctrl+C).")
         finally:
             self._halt()
 
     def finish(self):
-        """Terminer le programme à la fin de ce tour ; le robot est arrêté."""
+        """End the program after this cycle and stop the robot."""
         self._finished = True
 
     def log(self, *values):
-        """print() précédé du temps écoulé."""
+        """Print a message prefixed with elapsed time."""
         print(f"[{self.t:7.2f} s]", *values)
 
-    # --- Mouvement (consigne envoyée à la fin du tour) ---------------------
+    # --- Movement (command sent at the end of the cycle) ---------------------
 
     def velocity(self, linear, angular=0.0):
-        """m/s vers l'avant (négatif = reculer) et rad/s (positif = gauche)."""
-        linear = _number(linear, "La vitesse")
-        angular = _number(angular, "La rotation")
+        """Forward speed in m/s (negative = backward) and rad/s (positive = left)."""
+        linear = _number(linear, "Speed")
+        angular = _number(angular, "Angular speed")
         half = angular * WHEEL_SEPARATION / 2.0
         left, right = linear - half, linear + half
         limit = self.max_wheel_speed()
         if max(abs(left), abs(right)) > limit + 1e-9:
             raise ValueError(
-                f"Consigne trop rapide : roues {left:+.3f} / {right:+.3f} m/s, "
-                f"limite ±{limit:.2f} m/s par roue (MAX_SPEED_MPS dans robot.env).")
+                f"Command exceeds speed limit: wheels {left:+.3f} / {right:+.3f} m/s, "
+                f"limit ±{limit:.2f} m/s per wheel (MAX_SPEED_MPS in robot.env).")
         self._command = (linear, angular)
 
     def forward(self, speed):
-        """Avancer en ligne droite à speed m/s (négatif = reculer)."""
+        """Move straight ahead at speed m/s (negative = backward)."""
         self.velocity(speed, 0.0)
 
     def backward(self, speed):
-        """Reculer en ligne droite à speed m/s."""
-        self.velocity(-abs(_number(speed, "La vitesse")), 0.0)
+        """Move straight backward at speed m/s."""
+        self.velocity(-abs(_number(speed, "Speed")), 0.0)
 
     def turn(self, angular):
-        """Tourner sur place à angular rad/s (positif = gauche)."""
+        """Turn in place at angular rad/s (positive = left)."""
         self.velocity(0.0, angular)
 
     def wheels(self, left, right):
-        """Vitesse de chaque roue en m/s."""
-        left = _number(left, "La roue gauche")
-        right = _number(right, "La roue droite")
+        """Speed of each wheel in m/s."""
+        left = _number(left, "Left wheel speed")
+        right = _number(right, "Right wheel speed")
         self.velocity((left + right) / 2.0, (right - left) / WHEEL_SEPARATION)
 
     def stop(self):
-        """Consigne nulle."""
+        """Set a zero-velocity command."""
         self._command = (0.0, 0.0)
 
     @property
     def command(self):
-        """Consigne actuelle : (m/s, rad/s)."""
+        """Current command: (m/s, rad/s)."""
         return self._command
 
     def max_wheel_speed(self):
-        """Vitesse maximale d'une roue acceptée par le bridge (m/s)."""
+        """Maximum wheel speed accepted by the bridge (m/s)."""
         return self._telemetry.get("limits", {}).get("wheel_mps") or DEFAULT_WHEEL_LIMIT
 
     def max_turn_speed(self):
-        """Rotation sur place maximale (rad/s)."""
+        """Maximum in-place angular speed (rad/s)."""
         return 2.0 * self.max_wheel_speed() / WHEEL_SEPARATION
 
-    # --- Capteurs (photo prise au début du tour) --------------------------
+    # --- Sensors (snapshot taken at the start of the cycle) --------------------------
 
     def _age_ms(self, age_ms):
         late = (time.monotonic() - self._fetched_at) * 1000 if self._fetched_at else 0.0
         return age_ms + late
 
     def sensor(self, name, max_age=1.0):
-        """Données brutes d'un capteur du bridge, ou None si absent ou plus vieux que max_age s."""
+        """Raw bridge sensor data, or None if missing or older than max_age seconds."""
         entry = self._telemetry.get("sensors", {}).get(name)
         if entry is None or self._age_ms(entry["age_ms"]) > max_age * 1000:
             return None
@@ -196,11 +210,11 @@ class Robot(abc.ABC):
 
     # LiDAR
     def scan(self, max_age=1.0):
-        """Balayage : ranges (m, None si invalide), angle_min, angle_increment, range_min, range_max."""
+        """Scan: ranges (m, None if invalid), angle_min, angle_increment, range_min, range_max."""
         return self.sensor("scan", max_age)
 
     def _rays(self):
-        """(angle en degrés dans [-180, 180[, distance) pour chaque mesure valide."""
+        """(angle in degrees within [-180, 180), distance) for each valid measurement."""
         data = self.scan()
         if data is None:
             return []
@@ -213,7 +227,7 @@ class Robot(abc.ABC):
         return rays
 
     def distance_at(self, angle_deg, half_angle_deg=5):
-        """Plus petite distance (m) autour de angle_deg (0 = devant, 90 = gauche), ou None."""
+        """Shortest distance (m) around angle_deg (0 = forward, 90 = left), or None."""
         best = None
         for angle, distance in self._rays():
             gap = (angle - angle_deg + 180) % 360 - 180
@@ -222,30 +236,30 @@ class Robot(abc.ABC):
         return best
 
     def front_distance(self, half_angle_deg=15):
-        """Obstacle le plus proche devant (±half_angle_deg), en m, ou None."""
+        """Closest obstacle ahead (±half_angle_deg), in meters, or None."""
         return self.distance_at(0, half_angle_deg)
 
     def closest_obstacle(self):
-        """(distance en m, angle en degrés) de l'obstacle le plus proche, ou None."""
+        """(distance in meters, angle in degrees) of the closest obstacle, or None."""
         rays = self._rays()
         if not rays:
             return None
         angle, distance = min(rays, key=lambda ray: ray[1])
         return distance, angle
 
-    # Odométrie
+    # Odometry
     def pose(self, max_age=1.0):
-        """Position estimée : x, y (m), yaw_rad, linear_mps, angular_rad_s."""
+        """Estimated pose: x, y (m), yaw_rad, linear_mps, angular_rad_s."""
         return self.sensor("odom", max_age)
 
     def heading_deg(self):
-        """Orientation selon l'odométrie, en degrés dans [-180, 180], ou None."""
+        """Odometry heading in degrees within [-180, 180], or None."""
         pose = self.pose()
         if pose is None or pose["yaw_rad"] is None:
             return None
         return math.degrees(pose["yaw_rad"])
 
-    # IMU, magnétomètre, roues
+    # IMU, magnetometer, wheels
     def imu(self, max_age=1.0):
         """yaw_rad, angular_velocity {x,y,z} (rad/s), linear_acceleration {x,y,z} (m/s²)."""
         return self.sensor("imu", max_age)
@@ -255,23 +269,23 @@ class Robot(abc.ABC):
         return self.sensor("magnetic_field", max_age)
 
     def joint_states(self, max_age=1.0):
-        """name, position_rad, velocity_rad_s des deux roues."""
+        """name, position_rad, velocity_rad_s for both wheels."""
         return self.sensor("joint_states", max_age)
 
-    # Batterie
+    # Battery
     def battery(self, max_age=1.0):
-        """voltage_v, percentage (0..1 ou None), current_a, present."""
+        """voltage_v, percentage (0..1 or None), current_a, present."""
         return self.sensor("battery", max_age)
 
     def battery_voltage(self):
-        """Tension de la batterie en V, ou None."""
+        """Battery voltage in V, or None."""
         battery = self.battery()
         if battery and battery["voltage_v"] is not None:
             return battery["voltage_v"]
         state = self.sensor_state()
         return state["battery_v"] if state else None
 
-    # Carte OpenCR
+    # OpenCR board
     def sensor_state(self, max_age=1.0):
         """bumper, cliff, sonar, illumination, led, button, torque, left_encoder,
         right_encoder, battery_v."""
@@ -282,44 +296,44 @@ class Robot(abc.ABC):
         return None if state is None else state[field]
 
     def button(self):
-        """Boutons de l'OpenCR (entier, 0 = aucun), ou None."""
+        """OpenCR buttons (integer, 0 = none), or None."""
         return self._state_field("button")
 
     def bumper(self):
-        """Pare-chocs (entier, 0 = aucun contact), ou None."""
+        """Bumper (integer, 0 = no contact), or None."""
         return self._state_field("bumper")
 
     def cliff(self):
-        """Capteur de vide (valeur brute), ou None."""
+        """Cliff sensor (raw value), or None."""
         return self._state_field("cliff")
 
     def sonar(self):
-        """Sonar (valeur brute), ou None."""
+        """Sonar (raw value), or None."""
         return self._state_field("sonar")
 
     def illumination(self):
-        """Capteur de luminosité (valeur brute), ou None."""
+        """Light sensor (raw value), or None."""
         return self._state_field("illumination")
 
     def torque(self):
-        """True si les moteurs sont alimentés, ou None."""
+        """True if the motors are powered, or None."""
         return self._state_field("torque")
 
     def encoders(self):
-        """(gauche, droite) en ticks d'encodeur, ou None."""
+        """(left, right) encoder ticks, or None."""
         state = self.sensor_state()
         return None if state is None else (state["left_encoder"], state["right_encoder"])
 
-    # Autres topics (ESP32…)
+    # Other topics (ESP32…)
     def watch(self, topic):
-        """Commencer à recevoir un topic ROS (à appeler dans setup())."""
+        """Start receiving a ROS topic (call in setup())."""
         return self.bridge.watch(topic)
 
     def unwatch(self, topic):
         return self.bridge.unwatch(topic)
 
     def watched(self, topic, max_age=1.0):
-        """Dernier message d'un topic observé, ou None si rien de récent."""
+        """Latest message from a watched topic, or None if nothing is recent."""
         entry = self._telemetry.get("watched", {}).get(topic)
         if entry is None or entry["age_ms"] is None:
             return None
@@ -328,31 +342,31 @@ class Robot(abc.ABC):
         return entry["data"]
 
     def telemetry(self):
-        """Photo complète renvoyée par le bridge au début du tour."""
+        """Full snapshot returned by the bridge at the start of the cycle."""
         return self._telemetry
 
-    # --- Actions (immédiates ; jusqu'à 3 s d'attente) ----------------------
+    # --- Actions (immediate; may wait up to 3 seconds) ----------------------
 
     def sound(self, value="on"):
-        """Son OpenCR : nom de SOUNDS ou 0..5."""
+        """OpenCR sound: a name from SOUNDS or 0..5."""
         return self.bridge.sound(SOUNDS.get(value, value))
 
     def motor_power(self, enabled):
-        """Activer (True) ou couper (False) le couple des moteurs."""
+        """Enable (True) or disable (False) motor torque."""
         return self.bridge.motor_power(enabled)
 
     def reset(self):
-        """Remettre l'odométrie et l'IMU à zéro (le robot s'arrête)."""
+        """Reset odometry and the IMU (the robot stops)."""
         return self.bridge.reset()
 
     def status(self):
-        """État du bridge : status, reason, ros_alive, supervisor."""
+        """Bridge state: status, reason, ros_alive, supervisor."""
         return self.bridge.status()
 
-    # --- Temps et états ----------------------------------------------------
+    # --- Time and states ----------------------------------------------------
 
     def every(self, seconds, key=None):
-        """Vrai au premier appel, puis toutes les `seconds` secondes (une horloge par ligne)."""
+        """True on the first call, then every `seconds` seconds (one timer per line)."""
         if key is None:
             caller = sys._getframe(1)
             key = (caller.f_code.co_filename, caller.f_lineno)
@@ -363,21 +377,21 @@ class Robot(abc.ABC):
         return False
 
     def goto(self, state):
-        """Passer à un autre état ; state_time repart de zéro."""
+        """Switch to another state and reset state_time to zero."""
         if state != self.state:
             self.state = state
             self._state_since = self.t
 
     @property
     def state_time(self):
-        """Secondes passées dans l'état courant."""
+        """Seconds spent in the current state."""
         return self.t - self._state_since
 
     def after(self, seconds):
-        """Vrai si l'état courant dure depuis au moins `seconds` secondes."""
+        """True if the current state has lasted at least `seconds` seconds."""
         return self.state_time >= seconds
 
-    # --- Interne -----------------------------------------------------------
+    # --- Internals -----------------------------------------------------------
 
     def _refresh(self):
         self._telemetry = self.bridge.telemetry()
@@ -386,8 +400,8 @@ class Robot(abc.ABC):
     def _send(self):
         linear, angular = self._command
         if self.dry_run:
-            if self._command != self._shown:
-                self.log(f"[dry-run] consigne {linear:+.3f} m/s, {angular:+.3f} rad/s")
+            if self.verbose and self._command != self._shown:
+                self.log(f"[dry-run] command {linear:+.3f} m/s, {angular:+.3f} rad/s")
                 self._shown = self._command
             return
         try:
@@ -398,7 +412,7 @@ class Robot(abc.ABC):
             self._pause(error)
 
     def _pause(self, error):
-        # Comme le bridge, ne jamais reprendre une ancienne consigne après une perte de ready.
+        # Like the bridge, never resume an old command after losing readiness.
         self._command = (0.0, 0.0)
         self._paused = True
         reason = error
@@ -408,7 +422,7 @@ class Robot(abc.ABC):
                 reason = status.get("reason")
         except Exception:
             pass
-        self.log(f"Robot not ready ({reason}) : pause, reprise automatique.")
+        self.log(f"Robot not ready ({reason}): paused, will resume automatically.")
 
     def _check_resume(self):
         try:
@@ -417,58 +431,61 @@ class Robot(abc.ABC):
             return
         if ready:
             self._paused = False
-            self.log("Robot ready : reprise.")
+            self.log("Robot ready: resuming.")
 
     def _network(self, action):
-        """Exécuter une requête en tolérant une courte coupure réseau."""
+        """Execute a request while tolerating a short network outage."""
         kind = action.__name__
         try:
             action()
-        except OSError as error:   # URLError, timeout, connexion refusée
+        except OSError as error:   # URLError, timeout, connection refused
             now = time.monotonic()
             since = self._offline_since.setdefault(kind, now)
             if since == now:
-                self.log(f"Bridge injoignable ({error}) : nouvel essai…")
+                self.log(f"Bridge unreachable ({error}): retrying…")
             elif now - since > OFFLINE_LIMIT:
                 raise ConnectionError(
-                    f"Bridge injoignable depuis {OFFLINE_LIMIT:g} s : tunnel fermé ou Wi-Fi perdu ? "
-                    "(./start.sh doit tourner)") from error
+                    f"Bridge unreachable for {OFFLINE_LIMIT:g} s: tunnel closed or Wi-Fi disconnected? "
+                    "(./start.sh must be running)") from error
             return
         if self._offline_since.pop(kind, None) is not None:
-            self.log("Bridge de nouveau joignable.")
+            self.log("Bridge reachable again.")
 
     def _pace(self, began, period):
+        if not self.verbose:
+            return
         spent = time.monotonic() - began
         if spent > period and began - self._last_overrun > 5.0:
             self._last_overrun = began
-            self.log(f"Tour trop lent : {spent * 1000:.0f} ms pour {period * 1000:.0f} ms prévus "
-                     "(loop() bloquante ou réseau lent).")
+            details = ", ".join(f"{name}={ms:.1f} ms" for name, ms in self.cycle_timings_ms.items())
+            self.log(f"Slow cycle: {spent * 1000:.0f} ms for a {period * 1000:.0f} ms budget "
+                     f"({details}).")
 
     def _wait_ready(self):
         try:
             state = self.bridge.ready()
         except OSError as error:
             raise ConnectionError(
-                f"Bridge injoignable sur {self.bridge.url} : lancer ./start.sh d'abord.") from error
+                f"Bridge unreachable at {self.bridge.url}: run ./start.sh first.") from error
         last_report = -math.inf
         while state != "ready":
             if time.monotonic() - last_report > 5.0:
                 last_report = time.monotonic()
-                print(f"En attente du robot : {self.status().get('reason')}")
+                print(f"Waiting for the robot: {self.status().get('reason')}")
             time.sleep(0.5)
             state = self.bridge.ready()
 
     def _halt(self):
-        # Aucune consigne n'a pu partir avant la fin du premier tour.
+        # No command could have been sent before the first cycle completed.
         if self.dry_run or self.tick == 0:
             return
         last = None
         for _ in range(3):
             try:
                 self.bridge.stop()
-                print("Robot arrêté.")
+                print("Robot stopped.")
                 return
             except Exception as error:
                 last = error
-        print(f"Arrêt non confirmé ({last}) : le bridge arrêtera le robot sous 500 ms.",
+        print(f"Stop not confirmed ({last}): the bridge will stop the robot within 500 ms.",
               file=sys.stderr)

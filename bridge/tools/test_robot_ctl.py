@@ -1,6 +1,6 @@
-"""Tests du démarrage sans SSH, ROS ni matériel.
+"""Startup tests without SSH, ROS, or hardware.
 
-Exécuter : python3 -B -m unittest discover -s bridge/tools -p 'test_*.py'
+Run: python3 -B -m unittest discover -s bridge/tools -p 'test_*.py'
 """
 
 import os
@@ -29,8 +29,8 @@ class StartTests(unittest.TestCase):
                 + (binary if binary is not None else
                    'echo "not ready" > response\nwhile :; do sleep 1; done\n')
             )
-            # Le détachement Linux est simulé ; toute la famille de processus
-            # reste dans une session dédiée, nettoyée à la fin du test.
+            # Linux process detachment is simulated; the whole process family
+            # stays in a dedicated session that is cleaned up after the test.
             shim = root / "setsid"
             shim.write_text(
                 '#!/bin/bash\n[ "$1" = --wait ] && shift\nexec "$@"\n'
@@ -48,7 +48,7 @@ bridge_pids() {
     return 0
 }
 http_get() { cat "$DIR/response" 2>/dev/null; }
-# Accélérer uniquement les pauses du contrôleur, pas celles du faux robot.
+# Speed up only controller sleeps, not those of the fake robot.
 sleep() { command sleep 0.03; }
 cmd_start
 ''')
@@ -71,24 +71,24 @@ cmd_start
     def test_slow_ros_setup(self):
         code, output = self.run_start(setup="sleep 0.8")
         self.assertEqual(code, 0, output)
-        self.assertIn("Bridge démarré", output)
+        self.assertIn("Bridge started", output)
 
     def test_setup_failure_reports_log(self):
-        code, output = self.run_start(setup="echo 'ROS absent' >&2\nexit 7")
+        code, output = self.run_start(setup="echo 'ROS missing' >&2\nexit 7")
         self.assertEqual(code, 1, output)
-        self.assertIn("arrêté au démarrage", output)
-        self.assertIn("ROS absent", output)
+        self.assertIn("stopped during startup", output)
+        self.assertIn("ROS missing", output)
 
     def test_binary_failure_reports_log(self):
-        code, output = self.run_start(binary="echo 'Erreur binaire' >&2\nexit 8")
+        code, output = self.run_start(binary="echo 'Binary error' >&2\nexit 8")
         self.assertEqual(code, 1, output)
-        self.assertIn("arrêté au démarrage", output)
-        self.assertIn("Erreur binaire", output)
+        self.assertIn("stopped during startup", output)
+        self.assertIn("Binary error", output)
 
     def test_http_timeout_is_failure(self):
         code, output = self.run_start(binary="while :; do sleep 1; done")
         self.assertEqual(code, 1, output)
-        self.assertIn("Délai de démarrage dépassé", output)
+        self.assertIn("Startup timed out", output)
 
     def test_http_can_start_before_robot_is_ready(self):
         code, output = self.run_start(binary=(
@@ -96,7 +96,7 @@ cmd_start
             'while :; do sleep 1; done\n'
         ))
         self.assertEqual(code, 0, output)
-        self.assertIn("Bridge démarré", output)
+        self.assertIn("Bridge started", output)
 
 
 if __name__ == "__main__":

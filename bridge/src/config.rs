@@ -1,20 +1,20 @@
-//! Configuration locale ; aucune commande système n'est reçue par HTTP.
+//! Local configuration; no system commands are accepted over HTTP.
 use crate::BridgeResult;
 use std::{env, time::Duration};
 
 pub const PERIOD: Duration = Duration::from_millis(50);
 pub const LEASE: Duration = Duration::from_millis(500);
-/// Limite par défaut d'une roue, en m/s. Configurable jusqu'à BURGER_MAX_SPEED.
+/// Default wheel speed limit in m/s. Configurable up to BURGER_MAX_SPEED.
 pub const DEFAULT_MAX_SPEED: f64 = 0.10;
-/// Vitesse maximale constructeur du Burger.
+/// Burger manufacturer maximum speed.
 pub const BURGER_MAX_SPEED: f64 = 0.22;
-/// Écartement des roues du Burger (param/burger.yaml).
+/// Burger wheel separation (param/burger.yaml).
 pub const WHEEL_SEPARATION: f64 = 0.160;
 pub const TELEMETRY_TIMEOUT: Duration = Duration::from_secs(1);
 pub const STATUS_TIMEOUT: Duration = Duration::from_millis(500);
-/// Délai maximal d'un appel de service ROS (son, moteurs, reset).
+/// Maximum ROS service call timeout (sound, motors, reset).
 pub const SERVICE_TIMEOUT: Duration = Duration::from_millis(2500);
-/// Nombre maximal de topics observés à la demande.
+/// Maximum number of topics watched on demand.
 pub const MAX_WATCHES: usize = 8;
 
 pub struct Config {
@@ -52,18 +52,18 @@ impl Config {
         let stamped = match env::var("CMD_VEL_TYPE").as_deref().unwrap_or("stamped") {
             "stamped" => true,
             "twist" => false,
-            _ => return Err("CMD_VEL_TYPE doit valoir stamped ou twist".into()),
+            _ => return Err("CMD_VEL_TYPE must be stamped or twist".into()),
         };
         let autostart = match env::var("ROS_AUTOSTART").as_deref().unwrap_or("true") {
             "true" => true,
             "false" => false,
-            _ => return Err("ROS_AUTOSTART doit valoir true ou false".into()),
+            _ => return Err("ROS_AUTOSTART must be true or false".into()),
         };
         let max_speed = match env::var("MAX_SPEED_MPS") {
             Err(_) => DEFAULT_MAX_SPEED,
             Ok(text) => match text.trim().parse::<f64>() {
                 Ok(value) if value > 0.0 && value <= BURGER_MAX_SPEED => value,
-                _ => return Err("MAX_SPEED_MPS doit être compris entre 0 et 0.22".into()),
+                _ => return Err("MAX_SPEED_MPS must be greater than 0 and at most 0.22".into()),
             },
         };
         Ok(Self {
@@ -86,7 +86,7 @@ impl Config {
         })
     }
 
-    /// Rotation sur place maximale : les deux roues à max_speed en sens opposés.
+    /// Maximum in-place rotation: both wheels at max_speed in opposite directions.
     pub fn max_angular(&self) -> f64 {
         2.0 * self.max_speed / WHEEL_SEPARATION
     }

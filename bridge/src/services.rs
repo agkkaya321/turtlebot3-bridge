@@ -1,5 +1,5 @@
-//! Services du pilote TurtleBot3 : son, alimentation des moteurs, reset.
-//! Les réponses sont attendues sans bloquer la boucle de 50 ms.
+//! TurtleBot3 driver services: sound, motor power, reset.
+//! Wait for responses without blocking the 50 ms loop.
 use crate::{
     config::{Config, SERVICE_TIMEOUT},
     state::Telemetry,
@@ -56,7 +56,7 @@ pub struct Services {
 }
 
 fn poll<T>(future: &mut Pin<Box<dyn Future<Output = T>>>) -> Option<T> {
-    // Les réponses arrivent via spin_once : un réveil explicite est inutile.
+    // Responses arrive through spin_once: no explicit wakeup is needed.
     let mut context = Context::from_waker(futures::task::noop_waker_ref());
     match future.as_mut().poll(&mut context) {
         Poll::Ready(value) => Some(value),
@@ -117,7 +117,7 @@ impl Services {
         let response = self.sound.request(&request)?;
         let response = async move {
             match response.await {
-                Ok(r) => answer(r.success, r.message, "Son joué"),
+                Ok(r) => answer(r.success, r.message, "Sound played"),
                 Err(error) => Err(format!("Service sound : {error}")),
             }
         };
@@ -129,9 +129,9 @@ impl Services {
         let request = SetBool::Request { data: enabled };
         let response = self.motor_power.request(&request)?;
         let done = if enabled {
-            "Moteurs activés"
+            "Motors enabled"
         } else {
-            "Moteurs désactivés"
+            "Motors disabled"
         };
         let response = async move {
             match response.await {
@@ -147,7 +147,7 @@ impl Services {
         let response = self.reset.request(&Trigger::Request::default())?;
         let response = async move {
             match response.await {
-                Ok(r) => answer(r.success, r.message, "Reset effectué"),
+                Ok(r) => answer(r.success, r.message, "Reset completed"),
                 Err(error) => Err(format!("Service reset : {error}")),
             }
         };
@@ -164,7 +164,7 @@ impl Services {
         });
     }
 
-    /// À appeler après spin_once : délivre les réponses et expire les attentes.
+    /// Call after spin_once: deliver responses and expire pending requests.
     pub fn tick(&mut self) -> r2r::Result<()> {
         for watch in &mut self.watches {
             if let Some(probe) = &mut watch.probe {
@@ -181,7 +181,7 @@ impl Services {
             let result = poll(&mut pending.response).or_else(|| {
                 (Instant::now() >= pending.deadline).then(|| {
                     Err(format!(
-                        "Pas de réponse du service {} : pilote absent ou service indisponible",
+                        "No response from service {}: driver missing or service unavailable",
                         self.watches[pending.kind as usize].name
                     ))
                 })
@@ -198,7 +198,7 @@ impl Services {
             }
         }
         for kind in expired {
-            // Revérifier la présence du serveur après un silence.
+            // Recheck server availability after a timeout.
             self.watches[kind as usize].available = false;
             self.probe(kind)?;
         }
@@ -215,10 +215,10 @@ impl Services {
         }
     }
 
-    /// Prévenir les clients HTTP encore en attente lors d'une reconstruction ROS.
+    /// Notify waiting HTTP clients when ROS is rebuilt.
     pub fn abort(&mut self) {
         for pending in self.pending.drain(..) {
-            let _ = pending.reply.send(Err("Boucle ROS en récupération".into()));
+            let _ = pending.reply.send(Err("ROS loop recovering".into()));
         }
     }
 }

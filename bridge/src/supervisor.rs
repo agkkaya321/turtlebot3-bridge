@@ -1,4 +1,4 @@
-//! Supervision du seul groupe de processus lancé par ce bridge (Linux).
+//! Supervise only the process group started by this bridge (Linux).
 use crate::config::Config;
 use nix::{
     errno::Errno,
@@ -46,7 +46,7 @@ impl Supervisor {
             process: None,
             next_start: Instant::now() + DISCOVERY,
             retry_seconds: 2,
-            description: "Découverte des pilotes existants".into(),
+            description: "Discovering existing drivers".into(),
         }
     }
 
@@ -54,8 +54,8 @@ impl Supervisor {
         self.process.as_ref().is_none_or(|p| p.stopping.is_none())
     }
 
-    /// Appelé à chaque cycle. Aucun wait()/sleep() bloquant pendant la conduite.
-    /// stop_motion envoie zéro AVANT de terminer un groupe de processus.
+    /// Called each cycle. No blocking wait()/sleep() while driving.
+    /// stop_motion sends zero velocity BEFORE terminating a process group.
     pub fn tick(
         &mut self,
         config: &Config,
@@ -68,8 +68,8 @@ impl Supervisor {
             let exit = process.child.try_wait();
             if process.stopping.is_none() {
                 let failure = match exit {
-                    Ok(Some(status)) => Some(format!("Bringup terminé : {status}")),
-                    Err(error) => Some(format!("Processus inaccessible : {error}")),
+                    Ok(Some(status)) => Some(format!("Bringup exited: {status}")),
+                    Err(error) => Some(format!("Process unavailable: {error}")),
                     Ok(None) => {
                         if ros_alive {
                             process.last_alive = now;
@@ -83,7 +83,7 @@ impl Supervisor {
                         if process.started.elapsed() >= STARTUP
                             && process.last_alive.elapsed() >= STALLED
                         {
-                            Some("Données ROS perdues durablement".into())
+                            Some("Persistent loss of ROS data".into())
                         } else {
                             None
                         }
@@ -92,15 +92,15 @@ impl Supervisor {
                 if let Some(reason) = failure {
                     stop_motion();
                     process.stopping = Some(now);
-                    self.description = format!("{reason} ; arrêt avant relance");
+                    self.description = format!("{reason}; stopping before restart");
                     if let Err(error) = signal_group(process.group, Signal::SIGINT) {
-                        eprintln!("Arrêt du bringup impossible : {error}");
+                        eprintln!("Unable to stop bringup: {error}");
                     }
                 } else {
                     self.description = if ros_alive {
-                        "Bringup supervisé actif"
+                        "Supervised bringup active"
                     } else {
-                        "Démarrage du bringup / attente des données"
+                        "Starting bringup / waiting for data"
                     }
                     .into();
                 }
@@ -109,9 +109,9 @@ impl Supervisor {
                 .stopping
                 .is_some_and(|time| time.elapsed() >= STOP_GRACE)
             {
-                // Terminer aussi les enfants restants si ros2 launch a déjà quitté.
+                // Also terminate remaining children if ros2 launch has already exited.
                 if let Err(error) = signal_group(process.group, Signal::SIGKILL) {
-                    self.description = format!("Nettoyage impossible : {error} ; relance bloquée");
+                    self.description = format!("Cleanup failed: {error}; restart blocked");
                     return;
                 }
                 if matches!(process.child.try_wait(), Ok(Some(_))) {
@@ -123,14 +123,14 @@ impl Supervisor {
         }
 
         if !config.autostart {
-            self.description = "Démarrage automatique désactivé".into();
+            self.description = "Automatic startup disabled".into();
             return;
         }
         if external {
-            // Ne pas lancer un deuxième pilote sur le même port OpenCR.
+            // Do not start a second driver on the same OpenCR port.
             self.next_start = now + DISCOVERY;
             self.description =
-                "Pilotes externes détectés : surveillance sans prise de contrôle".into();
+                "External drivers detected: monitoring without taking control".into();
             return;
         }
         if now < self.next_start {
@@ -156,10 +156,10 @@ impl Supervisor {
                     healthy_since: None,
                     stopping: None,
                 });
-                self.description = "Bringup lancé ; calibration et découverte en cours".into();
+                self.description = "Bringup started; calibration and discovery in progress".into();
             }
             Err(error) => {
-                self.description = format!("Lancement de ros2 impossible : {error}");
+                self.description = format!("Unable to start ros2: {error}");
                 self.schedule_retry();
             }
         }
@@ -168,7 +168,7 @@ impl Supervisor {
     fn schedule_retry(&mut self) {
         self.next_start = Instant::now() + Duration::from_secs(self.retry_seconds);
         self.description = format!(
-            "{} ; nouvel essai dans {} s",
+            "{}; retrying in {} s",
             self.description, self.retry_seconds
         );
         self.retry_seconds = (self.retry_seconds * 2).min(60);
@@ -179,7 +179,7 @@ impl Supervisor {
             let _ = signal_group(process.group, Signal::SIGINT);
             thread::sleep(STOP_GRACE);
             let _ = signal_group(process.group, Signal::SIGKILL);
-            // Borné, même si le noyau ne termine pas immédiatement le processus.
+            // Bounded even if the kernel does not terminate the process immediately.
             for _ in 0..30 {
                 if matches!(process.child.try_wait(), Ok(Some(_))) {
                     break;
@@ -229,20 +229,20 @@ mod tests {
         let mut supervisor = Supervisor::new();
         supervisor.next_start = Instant::now();
         supervisor.tick(&config(true), false, true, || {
-            panic!("Arrêt externe interdit")
+            panic!("Stopping external processes is forbidden")
         });
         assert!(supervisor.process.is_none());
         assert!(supervisor.next_start > Instant::now());
-        assert!(supervisor.description.contains("externes"));
+        assert!(supervisor.description.contains("External"));
     }
 
     #[test]
     fn observation_mode_never_starts_ros() {
         let mut supervisor = Supervisor::new();
         supervisor.next_start = Instant::now();
-        supervisor.tick(&config(false), false, false, || panic!("Arrêt inattendu"));
+        supervisor.tick(&config(false), false, false, || panic!("Unexpected stop"));
         assert!(supervisor.process.is_none());
-        assert!(supervisor.description.contains("désactivé"));
+        assert!(supervisor.description.contains("disabled"));
     }
 
     #[test]

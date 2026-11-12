@@ -1,4 +1,4 @@
-"""Client Python sans dépendance externe. À exécuter sur ton ordinateur."""
+"""Dependency-free Python client. Run it on your computer."""
 
 import json
 import math
@@ -7,22 +7,22 @@ import time
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
-# Plafond constructeur du Burger ; le bridge applique sa propre limite (MAX_SPEED_MPS).
+# Burger manufacturer speed limit; the bridge enforces its own limit (MAX_SPEED_MPS).
 BURGER_MAX_SPEED = 0.22
 SOUNDS = {"off": 0, "on": 1, "low_battery": 2, "error": 3, "button1": 4, "button2": 5}
 
 
 def _number(value, name):
     if isinstance(value, bool):
-        raise ValueError(f"{name} doit être un nombre.")
+        raise ValueError(f"{name} must be a number.")
     value = float(value)
     if not math.isfinite(value):
-        raise ValueError(f"{name} doit être fini.")
+        raise ValueError(f"{name} must be finite.")
     return value
 
 
 class BridgeError(RuntimeError):
-    """Réponse d'erreur du bridge ; code = statut HTTP (400 consigne refusée, 503 not ready…)."""
+    """Bridge error response; code is the HTTP status (400 command rejected, 503 not ready…)."""
 
     def __init__(self, code, message):
         super().__init__(message)
@@ -30,7 +30,7 @@ class BridgeError(RuntimeError):
 
 
 class BridgeClient:
-    """Accès direct à l'API HTTP du bridge. Pour programmer un comportement, voir tb3.Robot."""
+    """Direct access to the bridge HTTP API. To implement behavior, see tb3.Robot."""
 
     def __init__(self, url="http://127.0.0.1:8000"):
         self.url = url.rstrip("/")
@@ -38,7 +38,7 @@ class BridgeClient:
         self._angular = 0.0
         self._http = build_opener(ProxyHandler({}))
 
-    # --- Requêtes HTTP -------------------------------------------------
+    # --- HTTP requests -------------------------------------------------
 
     def _get(self, path, timeout=0.3):
         with self._http.open(self.url + path, timeout=timeout) as response:
@@ -58,61 +58,61 @@ class BridgeClient:
             detail = error.read().decode("utf-8", errors="replace")
             raise BridgeError(error.code, f"Bridge HTTP {error.code} : {detail}") from error
 
-    # --- État -----------------------------------------------------------
+    # --- Status -----------------------------------------------------------
 
     def ready(self):
-        """Renvoie exactement 'ready' ou 'not ready'. Erreur si bridge inaccessible."""
+        """Return exactly 'ready' or 'not ready'. Raise if the bridge is unreachable."""
         with self._http.open(self.url + "/ready", timeout=0.3) as response:
             state = response.read().decode("utf-8").strip()
         if state not in ("ready", "not ready"):
-            raise RuntimeError(f"État inattendu du bridge : {state!r}")
+            raise RuntimeError(f"Unexpected bridge status: {state!r}")
         return state
 
     def status(self):
-        """Détails : état, raison et action du superviseur."""
+        """Details: status, reason, and supervisor action."""
         return self._get("/status")
 
     def wait_until_ready(self, timeout=60.0):
-        """Attendre le robot sans envoyer de consigne de mouvement."""
+        """Wait for the robot without sending motion commands."""
         timeout = float(timeout)
         if not math.isfinite(timeout) or timeout < 0:
-            raise ValueError("Timeout fini, positif ou nul requis.")
+            raise ValueError("Timeout must be finite and nonnegative.")
         deadline = time.monotonic() + timeout
         while True:
             if self.ready() == "ready":
                 return
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError("Le robot est toujours not ready.")
+                raise TimeoutError("The robot is still not ready.")
             time.sleep(min(0.2, remaining))
 
-    # --- Capteurs -------------------------------------------------------
+    # --- Sensors -------------------------------------------------------
 
     def telemetry(self):
-        """Tous les capteurs : odom, sensor_state, battery, imu, scan, magnetic_field,
-        joint_states, ainsi que les topics observés, les services et les limites."""
+        """All sensors: odom, sensor_state, battery, imu, scan, magnetic_field,
+        joint_states, plus watched topics, services, and limits."""
         return self._get("/telemetry", timeout=1.0)
 
     def sensor(self, name, max_age=1.0):
-        """Données d'un capteur, ou None s'il est absent ou trop ancien (secondes)."""
+        """Sensor data, or None if missing or older than max_age (seconds)."""
         entry = self.telemetry()["sensors"].get(name)
         if entry is None or entry["age_ms"] > max_age * 1000:
             return None
         return entry["data"]
 
     def pose(self):
-        """Odométrie : {'x', 'y', 'yaw_rad', 'linear_mps', 'angular_rad_s'}."""
+        """Odometry: {'x', 'y', 'yaw_rad', 'linear_mps', 'angular_rad_s'}."""
         return self.sensor("odom")
 
     def battery(self):
         return self.sensor("battery")
 
     def scan(self):
-        """LiDAR : ranges (m, None si invalide), angle_min, angle_increment."""
+        """LiDAR: ranges (m, None if invalid), angle_min, angle_increment."""
         return self.sensor("scan")
 
     def front_distance(self, half_angle_deg=15):
-        """Plus petite distance valide devant le robot, ou None."""
+        """Shortest valid distance ahead of the robot, or None."""
         data = self.scan()
         if data is None:
             return None
@@ -131,70 +131,70 @@ class BridgeClient:
         return self._get("/topics", timeout=1.0)["topics"]
 
     def watch(self, topic):
-        """Suivre n'importe quel topic (ex. capteur ESP32) dans telemetry()['watched']."""
+        """Watch any topic (e.g. an ESP32 sensor) in telemetry()['watched']."""
         return self._post("/watch", {"topic": topic}, timeout=4.0)
 
     def unwatch(self, topic):
         return self._post("/unwatch", {"topic": topic}, timeout=4.0)
 
-    # --- Services du robot ----------------------------------------------
+    # --- Robot services ----------------------------------------------
 
     def motor_power(self, enabled):
-        """Activer (True) ou couper (False) le couple des moteurs."""
+        """Enable (True) or disable (False) motor torque."""
         return self._post("/motor_power", {"enabled": bool(enabled)}, timeout=4.0)
 
     def sound(self, value=1):
-        """Jouer un son OpenCR : 0..5 ou un nom de SOUNDS."""
+        """Play an OpenCR sound: 0..5 or a name from SOUNDS."""
         value = SOUNDS.get(value, value)
         return self._post("/sound", {"value": int(value)}, timeout=4.0)
 
     def reset(self):
-        """Service reset du pilote (odométrie / IMU) ; arrête le robot avant."""
+        """Driver reset service (odometry / IMU); stops the robot first."""
         return self._post("/reset", {}, timeout=4.0)
 
-    # --- Mouvement ------------------------------------------------------
+    # --- Movement ------------------------------------------------------
 
     def velocity(self, linear, angular=0.0):
-        """m/s vers l'avant et rad/s (positif = tourner à gauche).
+        """Forward speed in m/s and angular speed in rad/s (positive = turn left).
 
-        Une commande expire après 500 ms côté robot. Utiliser wait()
-        pour la renouveler pendant une durée, ou rappeler velocity().
+        Commands expire after 500 ms on the robot. Use wait() to renew a
+        command for a duration, or call velocity() again.
         """
-        linear = _number(linear, "La vitesse")
-        angular = _number(angular, "La rotation")
+        linear = _number(linear, "Speed")
+        angular = _number(angular, "Angular speed")
         if abs(linear) > BURGER_MAX_SPEED:
-            raise ValueError(f"Vitesse attendue entre -{BURGER_MAX_SPEED} et {BURGER_MAX_SPEED} m/s.")
-        # En cas d'échec, un wait() ultérieur ne reprend pas l'ancienne vitesse.
+            raise ValueError(f"Speed must be between -{BURGER_MAX_SPEED} and {BURGER_MAX_SPEED} m/s.")
+        # On failure, a later wait() must not resume the previous speed.
         self._linear = self._angular = 0.0
         feedback = self._post("/velocity", {"linear_mps": linear, "angular_rad_s": angular})
         if feedback.get("published_to_ros") is not True:
-            raise RuntimeError(f"Publication ROS non confirmée : {feedback}")
+            raise RuntimeError(f"ROS publication not confirmed: {feedback}")
         self._linear, self._angular = linear, angular
         return feedback
 
     def forward(self, speed):
-        """m/s : positif = avancer, négatif = reculer, zéro = arrêter."""
+        """Speed in m/s: positive = forward, negative = backward, zero = stop."""
         return self.velocity(speed, 0.0)
 
     def turn(self, angular):
-        """Rotation sur place en rad/s (positif = gauche)."""
+        """Turn in place in rad/s (positive = left)."""
         return self.velocity(0.0, angular)
 
     def wheels(self, left, right):
-        """Vitesse de chaque roue en m/s."""
-        left = _number(left, "La roue gauche")
-        right = _number(right, "La roue droite")
+        """Speed of each wheel in m/s."""
+        left = _number(left, "Left wheel speed")
+        right = _number(right, "Right wheel speed")
         return self.velocity((left + right) / 2.0, (right - left) / 0.160)
 
     def stop(self):
-        """Demander immédiatement une vitesse nulle."""
+        """Immediately request zero velocity."""
         return self.velocity(0.0, 0.0)
 
     def wait(self, seconds):
-        """Renouveler la consigne pendant cette durée, sans thread caché."""
+        """Renew the command for this duration, without a background thread."""
         seconds = float(seconds)
         if not math.isfinite(seconds) or seconds < 0:
-            raise ValueError("Durée finie, positive ou nulle requise.")
+            raise ValueError("Duration must be finite and nonnegative.")
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             self.velocity(self._linear, self._angular)
@@ -212,6 +212,6 @@ class BridgeClient:
         except Exception as error:
             if exc_type is None:
                 raise
-            # Conserver l'erreur initiale, même si le réseau est déjà perdu.
-            print(f"Arrêt non confirmé : {error}", file=sys.stderr)
+            # Preserve the original error, even if the network connection is already lost.
+            print(f"Stop not confirmed: {error}", file=sys.stderr)
         return False

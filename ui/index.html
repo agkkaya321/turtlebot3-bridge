@@ -74,6 +74,15 @@ pre { background: var(--soft); border-radius: 8px; padding: 10px; overflow: auto
 .topic button { padding: 3px 10px; font-size: 12px; }
 kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; }
 select { font: inherit; background: var(--soft); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+.camview { position: relative; aspect-ratio: 16 / 9; max-height: 72vh; margin-inline: auto; background: var(--soft); border-radius: 10px; overflow: hidden; }
+.camview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.camview img:not([src]) { visibility: hidden; }
+#camOverlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 16px; color: var(--muted); }
+#camOverlay.dim { background: color-mix(in srgb, var(--card) 72%, transparent); color: var(--ink); font-weight: 600; }
+#camOverlay[hidden] { display: none; }
+#camError { color: var(--bad); }
+@media (min-width: 760px) { .cam { grid-column: span 2; } }
 @media (max-width: 420px) { main { padding: 12px 16px 40px; grid-template-columns: 1fr; } label.slider { grid-template-columns: 90px 1fr 60px; } }
 </style>
 </head>
@@ -110,6 +119,26 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
     <label class="slider">Droite <input id="rightWheel" type="range" min="-0.10" max="0.10" step="0.01" value="0"><span id="rightVal"></span></label>
     <div class="row"><button id="wheelsHold" class="primary">Maintenir pour rouler</button><button id="wheelsZero">Remettre à 0</button></div>
     <div class="note" id="driveMsg"></div>
+  </section>
+
+  <section class="card cam">
+    <h2>Caméra <span class="right row">
+      <select id="camPreset" aria-label="Compromis fluidité / qualité">
+        <option value="eco">Fluide · 320 px</option>
+        <option value="std">Équilibré · 480 px</option>
+        <option value="hq">Qualité · 640 px</option>
+        <option value="custom" hidden>Réglage du robot</option>
+      </select>
+      <select id="camRotate" aria-label="Rotation de l'image" title="Webcam montée de côté (portrait) : plus de champ vertical">
+        <option value="0">0°</option><option value="90">90° ↻</option>
+        <option value="180">180°</option><option value="270">90° ↺</option>
+      </select>
+      <button id="camSnap" title="Enregistrer l'image affichée">Capture</button>
+      <button id="camToggle">Pause</button></span></h2>
+    <div class="camview"><img id="camImg" alt="Image de la caméra du robot"><div id="camOverlay">En attente de la caméra…</div></div>
+    <div class="note" id="camStats">—</div>
+    <div class="note" id="camDriver"></div>
+    <div class="note" id="camError"></div>
   </section>
 
   <section class="card">
@@ -646,11 +675,142 @@ $("#restartBtn").onclick = () => { release(); system("Redémarrage du bridge", "
 $("#stopBridgeBtn").onclick = () => { release(); system("Arrêt du bridge", "/local/stop", "POST", "Arrêter le bridge sur le robot ? L'interface ne pourra plus piloter."); };
 fetch("/local/info").then((r) => r.json()).then((info) => { $("#robotHost").textContent = info.robot; }).catch(() => {});
 
+/* ---------- Caméra ----------
+   Le robot compresse l'image en JPEG (encodeur Rust du bridge). L'interface ne
+   demande l'image suivante qu'après avoir affiché la précédente : la cadence
+   s'adapte au Wi-Fi et le retard ne s'accumule jamais. */
+const CAM_PRESETS = {
+  eco: { width: 320, quality: 50, fps: 15 },
+  std: { width: 480, quality: 60, fps: 15 },
+  hq: { width: 640, quality: 80, fps: 15 },
+};
+const cam = { seq: 0, on: true, url: null, last: 0, shown: [], info: null, message: "", changing: false };
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function cameraLoop() {
+  for (;;) {
+    if (!cam.on || document.hidden) { await sleep(300); continue; }
+    const started = performance.now();
+    let response;
+    try {
+      response = await fetch(`/api/camera/frame?after=${cam.seq}`, { cache: "no-store" });
+    } catch (error) {
+      cam.message = `Interface injoignable : ${error.message}`;
+      await sleep(1000);
+      continue;
+    }
+    if (response.status === 204) { cam.message = "Pas d'image reçue du robot depuis 2,5 s"; continue; }
+    if (!response.ok) {
+      let text = `HTTP ${response.status}`;
+      try { text = (await response.json()).error || text; } catch (_) { /* corps vide */ }
+      cam.message = text;
+      await sleep(1000);
+      continue;
+    }
+    const blob = await response.blob();
+    const header = (name) => response.headers.get(name);
+    cam.seq = Number(header("X-Frame-Seq")) || cam.seq;
+    const url = URL.createObjectURL(blob);
+    const img = $("#camImg");
+    // Paysage 16:9, portrait (webcam tournée)… : le cadre suit l'image.
+    const [w, h] = [Number(header("X-Frame-Width")), Number(header("X-Frame-Height"))];
+    if (w && h) $(".camview").style.aspectRatio = `${w} / ${h}`;
+    img.src = url;
+    try { await img.decode(); } catch (_) { /* image affichée au chargement */ }
+    if (cam.url) URL.revokeObjectURL(cam.url);
+    cam.url = url;
+    cam.last = performance.now();
+    cam.shown.push([cam.last, blob.size]);
+    cam.message = "";
+    cam.info = {
+      width: header("X-Frame-Width"), height: header("X-Frame-Height"), quality: header("X-Frame-Quality"),
+      encode: header("X-Frame-Encode-Ms"), age: header("X-Frame-Age-Ms"), size: blob.size,
+      transfer: Math.round(cam.last - started),
+    };
+  }
+}
+
+function renderCamera() {
+  const now = performance.now();
+  cam.shown = cam.shown.filter(([time]) => now - time < 2000);
+  const fps = cam.shown.length / 2;
+  const mbps = cam.shown.reduce((sum, [, size]) => sum + size, 0) * 8 / 2 / 1e6;
+  const overlay = $("#camOverlay");
+  const fresh = cam.last && now - cam.last < 3000;
+  overlay.hidden = cam.on && fresh;
+  overlay.classList.toggle("dim", Boolean(cam.last));
+  overlay.textContent = !cam.on ? "En pause" : cam.message || "En attente de la caméra…";
+  const i = cam.info;
+  $("#camStats").textContent = i && fresh
+    ? `${i.width}×${i.height} · ${fps.toFixed(1)} i/s · ${(i.size / 1024).toFixed(1)} Ko/image · ${mbps.toFixed(2)} Mbit/s · `
+      + `qualité ${i.quality} · encodage ${i.encode} ms · âge au départ ${i.age} ms · transfert ${i.transfer} ms`
+    : "—";
+}
+
+async function pollCamera() {
+  if (!cam.on || document.hidden) return;
+  try {
+    const s = await api("/api/camera/status");
+    const source = s.source ? ` (${s.source.width}×${s.source.height} ${s.source.encoding})` : "";
+    $("#camDriver").textContent = `Pilote : ${s.driver} · ${s.topic} : ${s.fps.received} i/s reçues${source}`;
+    $("#camError").textContent = s.error ? `Erreur : ${s.error}` : "";
+    if (!cam.changing) {
+      const match = Object.entries(CAM_PRESETS).find(([, p]) =>
+        p.width === s.settings.width && p.quality === s.settings.quality && p.fps === s.settings.fps);
+      $("#camPreset").value = match ? match[0] : "custom";
+      $("#camRotate").value = String(s.settings.rotate ?? 0);
+    }
+  } catch (error) {
+    $("#camDriver").textContent = `État caméra indisponible : ${error.message}`;
+  }
+}
+
+$("#camPreset").onchange = async (e) => {
+  const preset = CAM_PRESETS[e.target.value];
+  if (!preset) return;
+  cam.changing = true;
+  try {
+    await api("/api/camera/settings", preset);
+    toast(`Caméra : ${preset.width} px, qualité ${preset.quality}`);
+  } catch (error) {
+    toast(`Réglage caméra refusé : ${error.message}`);
+  } finally {
+    cam.changing = false;
+  }
+};
+$("#camRotate").onchange = async (e) => {
+  const rotate = Number(e.target.value);
+  cam.changing = true;
+  try {
+    await api("/api/camera/settings", { rotate });
+    toast(rotate ? `Image tournée de ${rotate}° (sens horaire)` : "Image non tournée");
+  } catch (error) {
+    toast(`Rotation refusée : ${error.message}`);
+  } finally {
+    cam.changing = false;
+  }
+};
+$("#camToggle").onclick = () => {
+  cam.on = !cam.on;
+  $("#camToggle").textContent = cam.on ? "Pause" : "Reprendre";
+  renderCamera();
+};
+$("#camSnap").onclick = () => {
+  if (!cam.url) { toast("Aucune image à enregistrer"); return; }
+  const link = document.createElement("a");
+  link.href = cam.url;
+  link.download = `camera-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
+  link.click();
+};
+
 /* ---------- Boucles ---------- */
 pollStatus(); pollTelemetry(); refreshTopics();
 setInterval(pollStatus, 500);
 setInterval(pollTelemetry, 200);
 setInterval(refreshTopics, 5000);
+cameraLoop(); pollCamera();
+setInterval(renderCamera, 500);
+setInterval(pollCamera, 2000);
 </script>
 </body>
 </html>

@@ -79,6 +79,18 @@ cmd_check() {
     if ls /dev/ttyUSB* >/dev/null 2>&1; then ok "LiDAR : $(ls /dev/ttyUSB* | tr '\n' ' ')"; else warn "Aucun /dev/ttyUSB* : LiDAR non branché ?"; fi
     if id -nG | grep -qw dialout; then ok "Utilisateur dans le groupe dialout"; else warn "$(whoami) n'est pas dans dialout : accès série peut-être refusé"; fi
 
+    title "Caméra"
+    local camera="${CAMERA_DEVICE:-/dev/video0}"
+    if [ -e "$camera" ]; then ok "Webcam : $camera"; else warn "Aucune webcam sur $camera (brancher la caméra USB ; CAMERA_DEVICE dans robot.env)"; fi
+    if command -v v4l2-ctl >/dev/null; then
+        local cams
+        cams=$(v4l2-ctl --list-devices 2>/dev/null | grep -v '^[[:space:]]*/dev/' | grep -v '^$' | grep -viE 'bcm2835|unicam|pisp|rpivid|hevc' | tr '\n' ' ')
+        [ -n "$cams" ] && ok "Périphériques vidéo : $cams"
+    fi
+    if id -nG | grep -qw video; then ok "Utilisateur dans le groupe video"; else warn "$(whoami) n'est pas dans video : sudo usermod -aG video $(whoami) puis se reconnecter"; fi
+    if ros2 pkg prefix usb_cam >/dev/null 2>&1; then ok "Paquet usb_cam"; else warn "Paquet usb_cam introuvable : sudo apt install ros-jazzy-usb-cam (internet)"; fi
+    if pgrep -f usb_cam_node_exe >/dev/null; then ok "Pilote caméra actif (PID $(pgrep -f usb_cam_node_exe | tr '\n' ' '))"; else warn "Pilote caméra non lancé (le bridge le démarre si CAMERA_AUTOSTART=true)"; fi
+
     title "Bridge"
     if [ ! -x "$DIR/$BIN" ]; then
         bad "Binaire absent : $DIR/$BIN"
@@ -116,11 +128,13 @@ cmd_check() {
     for topic in cmd_vel odom sensor_state battery_state imu scan magnetic_field joint_states; do
         if echo "$topics" | grep -qx "$prefix/$topic"; then ok "Topic $prefix/$topic"; else warn "Topic $prefix/$topic absent"; fi
     done
+    local camera_topic="${CAMERA_TOPIC:-$prefix/image_raw}"
+    if echo "$topics" | grep -qx "$camera_topic"; then ok "Topic caméra $camera_topic"; else warn "Topic caméra $camera_topic absent"; fi
     for service in sound motor_power reset; do
         if echo "$services" | grep -qx "$prefix/$service"; then ok "Service $prefix/$service"; else warn "Service $prefix/$service absent"; fi
     done
     local others
-    others=$(echo "$topics" | grep -vE "^$prefix/(cmd_vel|odom|sensor_state|battery_state|imu|scan|magnetic_field|joint_states|tf|tf_static|parameter_events|rosout|robot_description)$" | grep -v '^$' || true)
+    others=$(echo "$topics" | grep -vE "^$prefix/(cmd_vel|odom|sensor_state|battery_state|imu|scan|magnetic_field|joint_states|tf|tf_static|parameter_events|rosout|robot_description|image_raw)$" | grep -v '^$' || true)
     if [ -n "$others" ]; then ok "Autres topics : $(echo "$others" | tr '\n' ' ')"; fi
 
     echo
@@ -172,7 +186,7 @@ cmd_stop() {
         echo "Bridge déjà arrêté."
         return 0
     fi
-    # SIGINT : le bridge publie zéro puis arrête le bringup qu'il a lancé.
+    # SIGINT : le bridge publie zéro puis arrête le bringup et la caméra qu'il a lancés.
     pkill -INT -f "$PATTERN"
     local i
     for i in $(seq 1 30); do
@@ -181,7 +195,7 @@ cmd_stop() {
     done
     echo "Le bridge ne répond pas à SIGINT ; arrêt forcé."
     pkill -KILL -f "$PATTERN"
-    echo "Vérifier qu'aucun bringup orphelin ne tourne : pgrep -af robot.launch.py"
+    echo "Vérifier qu'aucun bringup ni pilote caméra orphelin ne tourne : pgrep -af 'robot.launch.py|usb_cam'"
 }
 
 cmd_status() {

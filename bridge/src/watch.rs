@@ -34,6 +34,10 @@ impl Watches {
         let Some(kind) = graph.get(topic).and_then(|types| types.first()).cloned() else {
             return Err(format!("{topic} n'existe pas dans le graphe ROS"));
         };
+        if kind == "sensor_msgs/msg/Image" || kind == "sensor_msgs/msg/CompressedImage" {
+            // Des centaines de milliers de valeurs JSON par image ralentiraient la boucle ROS.
+            return Err(format!("{topic} est une image : utiliser la carte Caméra (GET /camera/frame)"));
+        }
         // sensor_data (best effort) reçoit aussi les publishers fiables.
         let mut qos = r2r::QosProfile::sensor_data();
         qos.depth = 1;

@@ -1,4 +1,5 @@
 //! Assemblage du bridge. HTTP reste disponible pendant une récupération ROS.
+mod camera;
 mod config;
 mod health;
 mod http;
@@ -34,11 +35,14 @@ fn main() -> BridgeResult<()> {
     let telemetry: SharedTelemetry = Arc::new(Mutex::new(Telemetry::default()));
     // File courte : la boucle ROS en vide plusieurs par cycle.
     let (commands, receiver) = mpsc::sync_channel(8);
+    // Caméra : thread d'encodage indépendant, pilote usb_cam géré par la boucle ROS.
+    let mut camera = camera::Camera::from_env(&config.namespace, running.clone());
     http::start(
         &config.bind,
         commands,
         status.clone(),
         telemetry.clone(),
+        camera.hub(),
         (config.max_speed, config.max_angular()),
         running.clone(),
     )?;
@@ -47,6 +51,7 @@ fn main() -> BridgeResult<()> {
         "Bridge http://{} -> {} ; roues limitées à ±{} m/s ; GET /ready pour l'état",
         config.bind, config.velocity_topic, config.max_speed
     );
+    eprintln!("{}", camera.describe());
 
     while running.load(Ordering::SeqCst) {
         match ros::run(
@@ -56,6 +61,7 @@ fn main() -> BridgeResult<()> {
             &telemetry,
             &running,
             &mut supervisor,
+            &mut camera,
         ) {
             Ok(()) => break,
             Err(error) => {
@@ -73,6 +79,9 @@ fn main() -> BridgeResult<()> {
     }
     running.store(false, Ordering::SeqCst);
     state::update(&status, Status::waiting("Arrêt du bridge"));
+    // SIGINT au pilote caméra et au bringup ensemble, puis une seule attente.
+    camera.interrupt();
     supervisor.shutdown();
+    camera.shutdown();
     Ok(())
 }

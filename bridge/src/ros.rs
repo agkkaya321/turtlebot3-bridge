@@ -1,5 +1,6 @@
 //! Boucle ROS : capteurs, état, consignes, services et expiration des commandes.
 use crate::{
+    camera::Camera,
     config::{Config, LEASE, PERIOD},
     health::Health,
     sensors,
@@ -32,7 +33,7 @@ const COMMANDS_PER_CYCLE: usize = 8;
 const GRAPH_EVERY: u32 = 20;
 
 /// Dernier message disponible, en bornant le travail par cycle.
-fn latest<T>(stream: &mut (impl Stream<Item = T> + Unpin)) -> Option<T> {
+pub(crate) fn latest<T>(stream: &mut (impl Stream<Item = T> + Unpin)) -> Option<T> {
     let mut last = None;
     for _ in 0..32 {
         match stream.next().now_or_never() {
@@ -50,6 +51,7 @@ pub fn run(
     telemetry: &SharedTelemetry,
     running: &AtomicBool,
     supervisor: &mut Supervisor,
+    camera: &mut Camera,
 ) -> BridgeResult<()> {
     let context = r2r::Context::create()?;
     let mut node = r2r::Node::create(context, "turtlebot_speed_bridge", "")?;
@@ -73,6 +75,8 @@ pub fn run(
     let mut joints = node.subscribe::<JointState>(&config.joint_topic, sensors_qos)?;
     let mut services = Services::new(&mut node, config)?;
     let mut watches = Watches::default();
+    // Nouveau nœud : l'ancien abonnement caméra n'est plus valable.
+    camera.detach();
     state::lock(telemetry).watched.clear();
     let mut clock = r2r::Clock::create(r2r::ClockType::SystemTime)?;
     let mut health = Health::default();
@@ -119,6 +123,8 @@ pub fn run(
                 }
                 watches.tick(&mut shared);
             }
+            // Caméra : dépôt de la dernière image et pilote usb_cam, sans erreur possible ici.
+            camera.tick(&mut node, cycles);
             services.tick()?;
 
             let subscribers = publisher.subscriber_count()?;
@@ -249,6 +255,7 @@ pub fn run(
         Status::waiting("Boucle ROS arrêtée ou en récupération"),
     );
     services.abort();
+    camera.detach();
     state::lock(telemetry).velocity = Velocity::ZERO;
     for _ in 0..3 {
         if let Err(error) = publisher.publish(Velocity::ZERO, &mut clock) {

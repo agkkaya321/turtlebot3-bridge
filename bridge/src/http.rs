@@ -1,5 +1,6 @@
 //! API HTTP, séparée de la boucle ROS et de la supervision.
 use crate::{
+    camera::{self, Hub},
     config::{LEASE, PERIOD, SERVICE_TIMEOUT},
     state::{self, Command, Request as RosRequest, SharedStatus, SharedTelemetry},
     velocity::Velocity,
@@ -23,7 +24,8 @@ const MAX_BODY: usize = 512;
 /// Lecteurs HTTP : l'interface interroge l'état pendant qu'un service répond.
 const READERS: usize = 4;
 const ROUTES: &str = "GET /ready /status /telemetry /topics ; POST /speed /velocity /wheels \
-                      /stop /motor_power /sound /reset /watch /unwatch";
+                      /stop /motor_power /sound /reset /watch /unwatch ; caméra : GET /camera/frame \
+                      /camera/status ; POST /camera/settings";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -73,11 +75,12 @@ struct Shared {
     commands: SyncSender<Command>,
     status: SharedStatus,
     telemetry: SharedTelemetry,
+    camera: Arc<Hub>,
     max_speed: f64,
     max_angular: f64,
 }
 
-fn respond(request: Request, status: u16, body: Value) {
+pub(crate) fn respond(request: Request, status: u16, body: Value) {
     let header = Header::from_bytes("Content-Type", "application/json").unwrap();
     let response = Response::from_string(body.to_string())
         .with_status_code(StatusCode(status))
@@ -88,7 +91,7 @@ fn respond(request: Request, status: u16, body: Value) {
 }
 
 /// Corps JSON borné ; un corps vide vaut `{}`.
-fn body<T: DeserializeOwned>(request: &mut Request) -> Result<T, String> {
+pub(crate) fn body<T: DeserializeOwned>(request: &mut Request) -> Result<T, String> {
     if request.body_length().unwrap_or(0) > MAX_BODY {
         return Err("Corps trop volumineux".into());
     }
@@ -106,7 +109,7 @@ fn body<T: DeserializeOwned>(request: &mut Request) -> Result<T, String> {
     serde_json::from_slice(&bytes).map_err(|error| format!("JSON invalide : {error}"))
 }
 
-fn valid_topic(topic: &str) -> bool {
+pub(crate) fn valid_topic(topic: &str) -> bool {
     topic.starts_with('/')
         && topic.len() <= 200
         && topic
@@ -190,6 +193,10 @@ fn handle_request(mut request: Request, shared: &Shared) {
     let received_at = Instant::now();
     let path = request.url().split('?').next().unwrap_or("").to_string();
     let method = request.method().clone();
+    if path.starts_with("/camera/") {
+        camera::http::handle(request, &path, &shared.camera);
+        return;
+    }
     if method == Method::Get {
         match path.as_str() {
             "/ready" => {
@@ -308,6 +315,7 @@ pub fn start(
     commands: SyncSender<Command>,
     status: SharedStatus,
     telemetry: SharedTelemetry,
+    camera: Arc<Hub>,
     limits: (f64, f64),
     running: Arc<AtomicBool>,
 ) -> BridgeResult<()> {
@@ -316,6 +324,7 @@ pub fn start(
         commands,
         status,
         telemetry,
+        camera,
         max_speed: limits.0,
         max_angular: limits.1,
     };

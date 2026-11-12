@@ -66,6 +66,10 @@ le suivant libre est utilisé.
 - **Odométrie** avec tracé de la trajectoire.
 - **Robot (OpenCR)** : batterie, couple, pare-chocs, boutons, falaise, sonar,
   luminosité, LED, encodeurs. **IMU**, magnétomètre et roues.
+- **Caméra** : vidéo en direct de la webcam USB, compressée en JPEG sur le robot ;
+  réglages Fluide / Équilibré / Qualité, rotation (webcam montée en portrait),
+  pause, capture d'une image. Sous l'image :
+  résolution, images/s, taille, débit, temps d'encodage et âge de l'image.
 - **Actions** : couple des moteurs, six sons, reset. Un point vert ou rouge indique
   si le service a été détecté sur le robot.
 - **Topics ROS** : liste du graphe et observation de n'importe quel topic (ex. ESP32).
@@ -90,6 +94,12 @@ s'affiche à côté. « Moteurs désactivés » : bouton **Activer** dans Action
 | Topics absents | Bringup arrêté, ou `ROS_DOMAIN_ID` différent entre robot.env et le bringup existant |
 | Service rouge dans l'interface | Nom différent sur ce robot : `ros2 service list -t`, puis `SOUND_SERVICE=`… dans robot.env |
 | `not ready` permanent | Lire la raison ; `./start.sh log` pour les messages du bringup |
+| Caméra : « Aucune webcam sur /dev/video0 » | Brancher la webcam ; `v4l2-ctl --list-devices` sur le robot, puis `CAMERA_DEVICE=` dans robot.env |
+| Caméra : « usb_cam arrêté » | `./start.sh log` ; groupe `video` (`groups`), paquet `ros-jazzy-usb-cam` |
+| Caméra : image verte ou illisible | `CAMERA_PIXEL_FORMAT=mjpeg2rgb` (défaut) ou `yuyv2rgb` dans robot.env |
+| Vidéo saccadée | Réglage **Fluide** dans l'interface ; Wi-Fi chargé ou robot loin du point d'accès |
+| Caméra : usb_cam refuse 1280×720 | `CAMERA_SOURCE_SIZE=640x480` dans robot.env (modes : `v4l2-ctl --list-formats-ext`) |
+| Personne coupée en haut ou en bas | Webcam montée en portrait + rotation 90° dans l'interface, ou reculer le robot |
 
 Le même diagnostic sans `start.sh`, depuis le Mac :
 

@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.request
 
-env = dict(os.environ, ROS_AUTOSTART="false", ROS_LOCALHOST_ONLY="1",
+env = dict(os.environ, ROS_AUTOSTART="false", CAMERA_AUTOSTART="false", ROS_LOCALHOST_ONLY="1",
            ROS_DOMAIN_ID="199", BRIDGE_BIND="127.0.0.1:18000")
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -20,6 +20,37 @@ def request(path, data=None, timeout=2):
                                  headers={"Content-Type": "application/json"})
     with opener.open(req, timeout=timeout) as response:
         return response.read().decode()
+
+
+def camera_frame(after=0):
+    """(statut, en-têtes, octets) de GET /camera/frame."""
+    with opener.open(f"http://127.0.0.1:18000/camera/frame?after={after}", timeout=5) as response:
+        return response.status, response.headers, response.read()
+
+
+# Fausse caméra : image rgb8 160×120 à 10 Hz, comme usb_cam (mjpeg2rgb).
+FAKE_CAMERA = """
+import array, rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+rclpy.init()
+node = Node("fake_camera")
+publisher = node.create_publisher(Image, "/image_raw", 10)
+w, h = 160, 120
+pixels = array.array("B", bytes(v for y in range(h) for x in range(w)
+                                for v in (x * 255 // w, y * 255 // h, 128)))
+def tick():
+    msg = Image()
+    msg.header.stamp = node.get_clock().now().to_msg()
+    msg.width, msg.height, msg.encoding, msg.step = w, h, "rgb8", w * 3
+    msg.data = pixels
+    publisher.publish(msg)
+node.create_timer(0.1, tick)
+try:
+    rclpy.spin(node)
+except KeyboardInterrupt:
+    pass
+"""
 
 
 def refused(path, data, code, timeout=2):
@@ -108,8 +139,90 @@ try:
 
     wait_for(watched, "Aucun message observé sur /cmd_vel")
     assert json.loads(request("/unwatch", {"topic": "/cmd_vel"}))["ok"]
+
+    # Caméra sans image : pas d'abonnement tant que personne ne regarde, puis 204.
+    camera = json.loads(request("/camera/status"))
+    assert camera["topic"] == "/image_raw" and camera["subscribed"] is False, camera
+    assert "désactivé" in camera["driver"] or "Recherche" in camera["driver"], camera
+    started = time.monotonic()
+    assert camera_frame()[0] == 204
+    assert 2 < time.monotonic() - started < 4.5
+    # Pendant l'attente vidéo, l'API de conduite répond toujours vite.
+    waiters = [threading.Thread(target=camera_frame) for _ in range(4)]
+    for waiter in waiters:
+        waiter.start()
+    time.sleep(0.2)
+    started = time.monotonic()
+    assert json.loads(request("/stop", {}))["published_to_ros"]
+    assert time.monotonic() - started < 0.5, "conduite bloquée par la vidéo"
+    for waiter in waiters:
+        waiter.join()
+
+    # Fausse caméra : le bridge s'abonne, compresse et sert un JPEG valide.
+    fake = subprocess.Popen([sys.executable, "-c", FAKE_CAMERA], env=env)
+    try:
+        frame = {}
+
+        def got_frame():
+            status, headers, data = camera_frame(frame.get("seq", 0))
+            if status == 200:
+                frame.update(seq=int(headers["X-Frame-Seq"]), headers=headers, data=data)
+            return status == 200
+
+        wait_for(got_frame, "Aucune image servie par /camera/frame", seconds=20)
+        headers, data = frame["headers"], frame["data"]
+        assert headers["Content-Type"] == "image/jpeg"
+        assert data[:2] == b"\xff\xd8" and data[-2:] == b"\xff\xd9"
+        assert (headers["X-Frame-Width"], headers["X-Frame-Height"]) == ("160", "120")
+        decoded = subprocess.run(["djpeg", "-pnm"], input=data, capture_output=True, check=True)
+        assert decoded.stderr == b"" and decoded.stdout.startswith(b"P6\n160 120\n255\n")
+        # Image suivante : seulement plus récente que la précédente.
+        previous = frame["seq"]
+        wait_for(got_frame, "Pas d'image suivante", seconds=5)
+        assert frame["seq"] > previous
+
+        # Réglages à chaud : 80 px de large -> 80×60.
+        refused("/camera/settings", {"width": 10}, 400)
+        refused("/camera/settings", {"bitrate": 1}, 400)
+        refused("/camera/settings", {"rotate": 45}, 400)
+        reply = json.loads(request("/camera/settings", {"width": 80, "quality": 40, "fps": 10}))
+        assert reply["settings"] == {"width": 80, "quality": 40, "fps": 10, "rotate": 0}, reply
+
+        def small_frame():
+            return got_frame() and frame["headers"]["X-Frame-Width"] == "80"
+
+        wait_for(small_frame, "Réglage width non appliqué", seconds=5)
+        assert frame["headers"]["X-Frame-Height"] == "60"
+        # Webcam montée en portrait : 80×60 tourné de 90° -> 60×80.
+        assert json.loads(request("/camera/settings", {"rotate": 90}))["settings"]["rotate"] == 90
+
+        def portrait_frame():
+            return got_frame() and frame["headers"]["X-Frame-Width"] == "60"
+
+        wait_for(portrait_frame, "Rotation non appliquée", seconds=5)
+        assert frame["headers"]["X-Frame-Height"] == "80"
+        decoded = subprocess.run(["djpeg", "-pnm"], input=frame["data"], capture_output=True, check=True)
+        assert decoded.stdout.startswith(b"P6\n60 80\n255\n")
+        camera = json.loads(request("/camera/status"))
+        assert camera["subscribed"] is True and camera["active"] is True, camera
+        assert camera["source"] == {"width": 160, "height": 120, "encoding": "rgb8"}, camera
+        frames = camera["frames"]
+        assert frames["received"] >= frames["encoded"] >= frames["served"] >= 3, camera
+        assert camera["error"] is None, camera
+        # Une image ne passe pas par l'observation JSON générique.
+        assert "Caméra" in refused("/watch", {"topic": "/image_raw"}, 503)["error"]
+        # Sans spectateur pendant 5 s, l'abonnement est retiré.
+        wait_for(lambda: json.loads(request("/camera/status"))["subscribed"] is False,
+                 "Abonnement caméra conservé sans spectateur", seconds=10)
+    finally:
+        fake.send_signal(signal.SIGINT)
+        try:
+            fake.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            fake.kill()
     print("Smoke test OK : HTTP, boucle ROS, not ready, refus du mouvement, zéro, "
-          "télémétrie, services absents, observation de topic.", flush=True)
+          "télémétrie, services absents, observation de topic, caméra (JPEG, réglages, "
+          "abonnement à la demande).", flush=True)
 finally:
     if process.poll() is None:
         process.send_signal(signal.SIGINT)

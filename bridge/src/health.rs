@@ -16,7 +16,7 @@ fn fresh(time: Option<Instant>) -> bool {
     time.is_some_and(|time| time.elapsed() < TELEMETRY_TIMEOUT)
 }
 
-fn sample_time(stamp: &r2r::builtin_interfaces::msg::Time) -> Option<Instant> {
+pub(crate) fn sample_time(stamp: &r2r::builtin_interfaces::msg::Time) -> Option<Instant> {
     let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
         return None;
     };

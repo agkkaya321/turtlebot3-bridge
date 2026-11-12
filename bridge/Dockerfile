@@ -2,10 +2,12 @@
 FROM rust:1.90-slim-bookworm AS rust
 
 FROM ros:jazzy-ros-base AS build
+# libjpeg-turbo-progs (djpeg) : décodeur indépendant pour tester l'encodeur JPEG du bridge.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libclang-dev pkg-config file \
     ros-jazzy-turtlebot3-msgs \
+    libjpeg-turbo-progs \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=rust /usr/local/cargo /usr/local/cargo
 COPY --from=rust /usr/local/rustup /usr/local/rustup

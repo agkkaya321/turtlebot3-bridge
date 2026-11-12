@@ -2,12 +2,15 @@
 
 - sert index.html ;
 - relaie /api/* vers le bridge (tunnel SSH), donc pas de CORS ;
+- relaie les images de la caméra sur des connexions gardées ouvertes ;
 - /local/* exécute robot_ctl.sh sur le robot par la connexion SSH partagée.
 Bibliothèque standard uniquement : fonctionne sans internet.
 """
 
 import argparse
+import http.client
 import json
+import queue
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +35,15 @@ def parse_args():
 
 
 ARGS = parse_args()
+BRIDGE = urlparse(ARGS.bridge)
+# Connexions gardées ouvertes vers le bridge pour la vidéo : une image ne paie
+# pas l'ouverture d'un nouveau canal dans le tunnel SSH (un aller-retour Wi-Fi).
+CAMERA_POOL = queue.LifoQueue(maxsize=4)
+
+
+def frame_headers(headers):
+    """En-têtes X-Frame-* (taille, qualité, âge…) transmis à l'interface."""
+    return {k: v for k, v in headers.items() if k.lower().startswith("x-frame-")}
 
 
 def robot_ctl(*arguments, timeout=60):
@@ -55,12 +67,14 @@ class Handler(BaseHTTPRequestHandler):
         # Les requêtes de l'interface (10 Hz) noieraient le terminal.
         pass
 
-    def send(self, code, body, kind="application/json"):
+    def send(self, code, body, kind="application/json", extra=None):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (extra or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 
@@ -81,7 +95,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with opener.open(request, timeout=5) as response:
                 return self.send(response.status, response.read(),
-                                 response.headers.get("Content-Type", "application/json"))
+                                 response.headers.get("Content-Type", "application/json"),
+                                 frame_headers(response.headers))
         except HTTPError as error:
             return self.send(error.code, error.read(),
                              error.headers.get("Content-Type", "application/json"))
@@ -89,8 +104,39 @@ class Handler(BaseHTTPRequestHandler):
             reason = getattr(error, "reason", error)
             return self.send(502, {"error": f"Bridge injoignable : {reason}", "bridge": False})
 
+    def camera_frame(self):
+        """GET /api/camera/frame : le bridge attend au plus 2,5 s une image."""
+        path = self.path[len("/api"):]
+        while True:
+            try:
+                connection, reused = CAMERA_POOL.get_nowait(), True
+            except queue.Empty:
+                connection = http.client.HTTPConnection(BRIDGE.hostname, BRIDGE.port or 80, timeout=6)
+                reused = False
+            try:
+                connection.request("GET", path)
+                response = connection.getresponse()
+                data = response.read()
+                break
+            except (OSError, http.client.HTTPException) as error:
+                connection.close()
+                if not reused:
+                    return self.send(502, {"error": f"Bridge injoignable : {error}", "bridge": False})
+                # Connexion fermée pendant l'inactivité : essayer la suivante ou une neuve.
+        if response.will_close:
+            connection.close()
+        else:
+            try:
+                CAMERA_POOL.put_nowait(connection)
+            except queue.Full:
+                connection.close()
+        return self.send(response.status, data, response.getheader("Content-Type", "application/json"),
+                         frame_headers(response.headers))
+
     def do_GET(self):
         url = urlparse(self.path)
+        if url.path == "/api/camera/frame":
+            return self.camera_frame()
         if url.path in ("/", "/index.html"):
             return self.send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
         if url.path.startswith("/api/"):

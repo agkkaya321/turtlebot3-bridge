@@ -5,6 +5,8 @@ sur le réseau Wi-Fi du robot, **sans internet et sans rien installer sur le rob
 
 - **Bridge Rust** sur le robot : expose les moteurs, les capteurs et les services ROS
   via une petite API HTTP, avec arrêt automatique si les consignes n'arrivent plus.
+- **Caméra USB** : le bridge lance `usb_cam`, compresse l'image en JPEG (encodeur Rust
+  maison) et l'interface web l'affiche en direct.
 - **`start.sh`** sur le Mac : déploie le bridge, diagnostique le robot, ouvre un tunnel SSH
   et une interface web.
 - **Client Python `tb3.Robot`** : programmer un comportement façon Arduino (`setup()` puis `loop()`).
@@ -17,6 +19,7 @@ Mac                                                     Raspberry Pi (TurtleBot3
 │ start.sh                 │           127.0.0.1:8000   │   ▼                          │
 └──────────────────────────┘                            │ ROS 2 Jazzy : turtlebot3_node│
                                                         │ LiDAR, OpenCR, moteurs       │
+                                                        │ usb_cam -> /image_raw -> JPEG│
                                                         └──────────────────────────────┘
 ```
 
@@ -80,7 +83,7 @@ Adresse du robot par défaut : `ubuntu@192.168.1.109`. Autre adresse :
 .
 ├── start.sh            Lancement depuis le Mac
 ├── bridge/             Bridge Rust (ROS 2 ↔ HTTP), compilé dans Docker pour ARM64
-│   ├── src/            Code source
+│   ├── src/            Code source (src/camera/ : pilote usb_cam, compression JPEG, vidéo)
 │   ├── tools/          robot_ctl.sh (diagnostic sur le robot), smoke_test.py
 │   ├── run.sh          Charge l'environnement ROS puis lance le bridge sur le robot
 │   └── robot.env.example
@@ -103,10 +106,31 @@ Adresse du robot par défaut : `ubuntu@192.168.1.109`. Autre adresse :
 - [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md) : compilation, lancement, interface web, dépannage.
 - [bridge/README.md](bridge/README.md) : API HTTP, readiness, sécurité, configuration `robot.env`.
 
+## Caméra
+
+Webcam USB (testée par le cours avec une Logitech C270) et paquet `ros-jazzy-usb-cam`
+installé sur le robot. Rien d'autre à faire : `./start.sh` met le bridge à jour, le
+bridge lance `usb_cam` (`pixel_format:=mjpeg2rgb`, 1280×720, 15 i/s) si aucun nœud ne
+publie déjà `/image_raw`, et la carte **Caméra** de l'interface affiche la vidéo.
+
+- L'image brute (2,7 Mo) est réduite puis compressée en JPEG **sur le robot**, par un
+  encodeur écrit en Rust (`bridge/src/camera/jpeg.rs`) : ~15 Ko par image à 480 px.
+- L'interface ne demande l'image suivante qu'après avoir affiché la précédente : la
+  cadence s'adapte au Wi-Fi, sans retard qui s'accumule.
+- Trois réglages dans l'interface : Fluide (320 px), Équilibré (480 px), Qualité (640 px).
+- **Champ de vision** : la source est en 16:9 (1280×720) pour garder toute la largeur
+  du capteur ; un mode 4:3 comme 640×480 en recadre souvent les côtés. Pour filmer une
+  personne debout en entier, monter la webcam **de côté (portrait)** et choisir la
+  rotation 90° dans l'interface : environ 52° de champ vertical au lieu de 30°.
+- Le bridge ne reçoit et ne compresse l'image que lorsque quelqu'un la regarde
+  (`usb_cam`, lui, tourne en continu).
+
+Détails, API et variables : [bridge/README.md](bridge/README.md#caméra).
+
 ## Matériel visé
 
 TurtleBot3 Burger, Raspberry Pi sous Ubuntu 24.04 (aarch64), ROS 2 Jazzy, LiDAR LDS-03,
-carte OpenCR. Les identifiants SSH ne sont pas versionnés (fichier local `sshRobot.md`).
+carte OpenCR, webcam USB. Les identifiants SSH ne sont pas versionnés (fichier local `sshRobot.md`).
 
 ## Sécurité
 

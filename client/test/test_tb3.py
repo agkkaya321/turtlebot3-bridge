@@ -2,7 +2,7 @@
 import math
 import unittest
 from unittest.mock import patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import tb3
 from robot import BridgeError
@@ -80,6 +80,27 @@ class Forward(tb3.Robot):
 @patch("tb3.time.sleep")
 @patch("builtins.print")
 class RunTests(unittest.TestCase):
+    def test_http_error_at_startup_reports_wrong_endpoint_without_moving(self, *_):
+        robot = make(Forward, ticks=1)
+        error = HTTPError(robot.bridge.url + "/ready", 404, "Not Found", {}, None)
+        with patch.object(robot.bridge, "ready", side_effect=error), patch.object(robot, "setup") as setup:
+            with self.assertRaises(ConnectionError) as raised:
+                robot.run()
+        message = str(raised.exception)
+        self.assertIn("HTTP 404 from http://fake/ready", message)
+        self.assertIn("--url", message)
+        self.assertNotIn("unreachable", message)
+        setup.assert_not_called()
+        self.assertEqual(robot.bridge.sent, [])
+        self.assertEqual(robot.bridge.stops, 0)
+
+    def test_unreachable_at_startup_reports_tunnel_url(self, *_):
+        robot = make(Forward, ticks=1)
+        with patch.object(robot.bridge, "ready", side_effect=URLError("Connection refused")):
+            with self.assertRaisesRegex(ConnectionError, "Bridge unreachable.*--url"):
+                robot.run()
+        self.assertEqual(robot.bridge.sent, [])
+
     def test_cycle_timings_separate_read_loop_and_send(self, *_):
         robot = make(Forward, ticks=1)
         with patch("tb3.time.perf_counter", side_effect=[0, 0.01, 0.01, 0.03, 0.03, 0.06]):

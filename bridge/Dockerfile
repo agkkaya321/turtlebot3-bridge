@@ -17,6 +17,7 @@ WORKDIR /build
 COPY Cargo.* ./
 COPY src ./src
 COPY tools/smoke_test.py ./tools/smoke_test.py
+COPY tools/camera_smoke_test.py ./tools/camera_smoke_test.py
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
     source /opt/ros/jazzy/setup.bash && \
@@ -24,6 +25,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo test --release --locked && \
     cargo build --release --locked && \
     python3 tools/smoke_test.py target/release/turtlebot-speed-bridge && \
+    python3 tools/camera_smoke_test.py target/release/turtlebot-speed-bridge && \
     mkdir -p /out/target/release && \
     cp target/release/turtlebot-speed-bridge /out/target/release/ && \
     cp Cargo.lock /out/ && \

@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 
 env = dict(os.environ, ROS_AUTOSTART="false", ROS_LOCALHOST_ONLY="1",
-           ROS_DOMAIN_ID="199", BRIDGE_BIND="127.0.0.1:18000")
+           ROS_DOMAIN_ID="199", BRIDGE_BIND="127.0.0.1:18000", CAMERA_ENABLED="false")
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -56,6 +56,8 @@ try:
         time.sleep(0.1)
     assert request("/ready") == "not ready"
     assert status["ros_alive"] is False
+    assert json.loads(request("/camera/status"))["state"] == "disabled"
+    refused("/camera/frame.jpg", None, 503)
 
     # Motion is rejected unless the robot is ready; zero velocity is always accepted.
     refused("/speed", {"speed_mps": 0.03}, 503)

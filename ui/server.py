@@ -17,6 +17,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 HERE = Path(__file__).resolve().parent
 MAX_BODY = 4096
+MAX_CAMERA_FRAME = 2 * 1024 * 1024
 opener = build_opener(ProxyHandler({}))
 
 
@@ -55,14 +56,19 @@ class Handler(BaseHTTPRequestHandler):
         # UI requests (10 Hz) would flood the terminal.
         pass
 
-    def send(self, code, body, kind="application/json"):
+    def send(self, code, body, kind="application/json", headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Browser cancelled a request (pause, navigation, hidden tab).
 
     def body(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -80,8 +86,15 @@ class Handler(BaseHTTPRequestHandler):
                           headers={"Content-Type": "application/json"})
         try:
             with opener.open(request, timeout=5) as response:
-                return self.send(response.status, response.read(),
-                                 response.headers.get("Content-Type", "application/json"))
+                camera = urlparse(path).path == "/camera/frame.jpg"
+                body = response.read(MAX_CAMERA_FRAME + 1) if camera else response.read()
+                if camera and len(body) > MAX_CAMERA_FRAME:
+                    return self.send(502, {"error": "Camera frame exceeds 2 MiB"})
+                headers = {name: response.headers[name] for name in
+                           ("X-Camera-Sequence", "X-Camera-Age-Ms", "X-Camera-Stamp")
+                           if camera and name in response.headers}
+                return self.send(response.status, body,
+                                 response.headers.get("Content-Type", "application/json"), headers)
         except HTTPError as error:
             return self.send(error.code, error.read(),
                              error.headers.get("Content-Type", "application/json"))
@@ -93,6 +106,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path in ("/", "/index.html"):
             return self.send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if url.path == "/camera.js":
+            return self.send(200, (HERE / "camera.js").read_bytes(), "text/javascript; charset=utf-8")
         if url.path.startswith("/api/"):
             return self.proxy("GET")
         if url.path == "/local/info":

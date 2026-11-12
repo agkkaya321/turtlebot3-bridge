@@ -18,6 +18,7 @@ pub const SERVICE_TIMEOUT: Duration = Duration::from_millis(2500);
 pub const MAX_WATCHES: usize = 8;
 
 pub struct Config {
+    pub camera: crate::camera::Config,
     pub bind: String,
     pub namespace: String,
     pub velocity_topic: String,
@@ -67,6 +68,7 @@ impl Config {
             },
         };
         Ok(Self {
+            camera: crate::camera::Config::from_env(&namespace)?,
             bind: env::var("BRIDGE_BIND").unwrap_or_else(|_| "127.0.0.1:8000".into()),
             velocity_topic: name("CMD_VEL_TOPIC", "cmd_vel"),
             odometry_topic: name("ODOM_TOPIC", "odom"),

@@ -1,5 +1,6 @@
 //! HTTP API, separate from the ROS loop and supervision.
 use crate::{
+    camera::{self, SharedCamera},
     config::{LEASE, PERIOD, SERVICE_TIMEOUT},
     state::{self, Command, Request as RosRequest, SharedStatus, SharedTelemetry},
     velocity::Velocity,
@@ -22,7 +23,7 @@ use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 const MAX_BODY: usize = 512;
 /// HTTP readers: the UI polls status while a service response is pending.
 const READERS: usize = 4;
-const ROUTES: &str = "GET /ready /status /telemetry /topics ; POST /speed /velocity /wheels \
+const ROUTES: &str = "GET /ready /status /telemetry /topics /camera/status /camera/frame.jpg ; POST /speed /velocity /wheels \
                       /stop /motor_power /sound /reset /watch /unwatch";
 
 #[derive(Deserialize)]
@@ -70,6 +71,8 @@ struct Empty {}
 
 #[derive(Clone)]
 struct Shared {
+    camera: SharedCamera,
+    camera_requests: SyncSender<Request>,
     commands: SyncSender<Command>,
     status: SharedStatus,
     telemetry: SharedTelemetry,
@@ -192,6 +195,18 @@ fn handle_request(mut request: Request, shared: &Shared) {
     let method = request.method().clone();
     if method == Method::Get {
         match path.as_str() {
+            "/camera/status" => {
+                let body = state::lock(&shared.camera).json();
+                respond(request, 200, body);
+            }
+            "/camera/frame.jpg" => {
+                if let Err(error) = shared.camera_requests.try_send(request) {
+                    let request = match error {
+                        mpsc::TrySendError::Full(r) | mpsc::TrySendError::Disconnected(r) => r,
+                    };
+                    respond(request, 503, json!({"error": "Camera HTTP workers busy; retry later"}));
+                }
+            }
             "/ready" => {
                 let label = state::lock(&shared.status).label();
                 let response = Response::from_string(label)
@@ -308,11 +323,14 @@ pub fn start(
     commands: SyncSender<Command>,
     status: SharedStatus,
     telemetry: SharedTelemetry,
+    camera: SharedCamera,
     limits: (f64, f64),
     running: Arc<AtomicBool>,
 ) -> BridgeResult<()> {
     let server = Arc::new(Server::http(bind)?);
     let shared = Shared {
+        camera_requests: camera::http_workers(camera.clone(), running.clone()),
+        camera,
         commands,
         status,
         telemetry,

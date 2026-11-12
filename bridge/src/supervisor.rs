@@ -205,7 +205,6 @@ mod tests {
 
     fn config(autostart: bool) -> Config {
         Config {
-            camera: crate::camera::Config::from_env("").unwrap(),
             bind: "127.0.0.1:8000".into(),
             namespace: String::new(),
             velocity_topic: "/cmd_vel".into(),

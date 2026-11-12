@@ -1,5 +1,4 @@
 //! Bridge entry point. HTTP remains available during ROS recovery.
-mod camera;
 mod config;
 mod health;
 mod http;
@@ -35,17 +34,14 @@ fn main() -> BridgeResult<()> {
     let telemetry: SharedTelemetry = Arc::new(Mutex::new(Telemetry::default()));
     // Short queue: the ROS loop drains several entries per cycle.
     let (commands, receiver) = mpsc::sync_channel(8);
-    let camera = Arc::new(Mutex::new(camera::Camera::new(config.camera.clone())));
     http::start(
         &config.bind,
         commands,
         status.clone(),
         telemetry.clone(),
-        camera.clone(),
         (config.max_speed, config.max_angular()),
         running.clone(),
     )?;
-    let camera_thread = camera::start(camera, running.clone());
     let mut supervisor = Supervisor::new();
     eprintln!(
         "Bridge http://{} -> {}; wheel limit ±{} m/s; GET /ready for status",
@@ -78,10 +74,5 @@ fn main() -> BridgeResult<()> {
     running.store(false, Ordering::SeqCst);
     state::update(&status, Status::waiting("Stopping bridge"));
     supervisor.shutdown();
-    if let Some(worker) = camera_thread {
-        if worker.join().is_err() {
-            eprintln!("Camera worker stopped unexpectedly");
-        }
-    }
     Ok(())
 }

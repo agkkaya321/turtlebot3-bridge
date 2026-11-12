@@ -1,15 +1,13 @@
 # TurtleBot3 Bridge
 
 Piloter et programmer un **TurtleBot3 Burger** (ROS 2 Jazzy, Raspberry Pi) depuis un Mac,
-sur le réseau Wi-Fi du robot, sans internet une fois les pilotes ROS installés.
+sur le réseau Wi-Fi du robot, **sans internet et sans rien installer sur le robot**.
 
 - **Bridge Rust** sur le robot : expose les moteurs, les capteurs et les services ROS
   via une petite API HTTP, avec arrêt automatique si les consignes n'arrivent plus.
 - **`start.sh`** sur le Mac : déploie le bridge, diagnostique le robot, ouvre un tunnel SSH
   et une interface web.
 - **Client Python `tb3.Robot`** : programmer un comportement façon Arduino (`setup()` puis `loop()`).
-- **Caméra USB optionnelle** : images JPEG via le même tunnel, aperçu web et `CameraClient`.
-  Voir [l’activation de la caméra](docs/CAMERA.md).
 
 ```
 Mac                                                     Raspberry Pi (TurtleBot3)
@@ -89,7 +87,6 @@ Adresse du robot par défaut : `ubuntu@192.168.1.109`. Autre adresse :
 ├── client/             Client Python, sans dépendance externe
 │   ├── tb3.py          Classe Robot à hériter : setup() / loop()
 │   ├── robot.py        BridgeClient : accès direct à l'API HTTP
-│   ├── camera.py       CameraClient : images JPEG et état de la caméra
 │   ├── exemples/       avancer, eviter_obstacles, carre, capteurs
 │   └── test_*.py       Tests (python3 -m unittest)
 ├── ui/                 Interface web locale (server.py + index.html, sans CDN)
@@ -104,7 +101,6 @@ Adresse du robot par défaut : `ubuntu@192.168.1.109`. Autre adresse :
 - [docs/GUIDE_ROBOT.md](docs/GUIDE_ROBOT.md) : toutes les fonctions du client Python (mouvement,
   LiDAR, odométrie, IMU, batterie, OpenCR, topics ESP32, temps et états).
 - [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md) : compilation, lancement, interface web, dépannage.
-- [docs/CAMERA.md](docs/CAMERA.md) : Brio 105, activation, API et accès Python.
 - [bridge/README.md](bridge/README.md) : API HTTP, readiness, sécurité, configuration `robot.env`.
 
 ## Matériel visé

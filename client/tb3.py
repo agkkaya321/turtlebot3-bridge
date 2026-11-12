@@ -22,7 +22,6 @@ import signal
 import sys
 import threading
 import time
-from urllib.error import HTTPError
 
 from robot import SOUNDS, BridgeClient, BridgeError, _number
 
@@ -465,16 +464,9 @@ class Robot(abc.ABC):
     def _wait_ready(self):
         try:
             state = self.bridge.ready()
-        except HTTPError as error:
-            raise ConnectionError(
-                f"HTTP {error.code} from {self.bridge.url}/ready: the server responded, "
-                "but the bridge readiness request failed. Check --url against the API "
-                "tunnel URL printed by ./start.sh (the port may differ from 8000). "
-                "For HTTP 404, this may be another server or an incompatible bridge.") from error
         except OSError as error:
             raise ConnectionError(
-                f"Bridge unreachable at {self.bridge.url}: run ./start.sh from the repository root "
-                "and pass its API tunnel URL with --url.") from error
+                f"Bridge unreachable at {self.bridge.url}: run ./start.sh first.") from error
         last_report = -math.inf
         while state != "ready":
             if time.monotonic() - last_report > 5.0:

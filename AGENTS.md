@@ -93,22 +93,14 @@
   Les détails restent en mémoire (`diagnostics`, `r_smooth`, `raw_speed`,
   `speed`). `Main.verbose = False` masque les diagnostics techniques et les
   avertissements de durée ; les erreurs de connexion et d'arrêt restent visibles.
-- Caméra réellement détectée sur le robot : **Logitech Brio 105**, `/dev/video0`
-  (corrige la C270 annoncée auparavant). L'utilisateur confirme la capture avec
-  `usb_cam`, `pixel_format:=mjpeg2rgb`, 640 × 480 à 15 Hz. La série 2, tâche 6,
-  illustre la même approche avec une C270 :
+- Caméra confirmée par l'utilisateur : **Logitech C270 HD**, branchée en USB
+  au Raspberry Pi du robot pour filmer la personne qui s'entraîne. La série 2,
+  tâche 6, utilise ce modèle avec `usb_cam` et `pixel_format:=mjpeg2rgb` :
   https://github.com/nembrinj/protofablab/blob/main/2026/assignments/AN_02/html/AN_02_ROS.html
-- `bridge/src/camera.rs` ajoute une réception ROS dédiée de JPEG sur
-  `/image_raw/compressed`, `GET /camera/status` et `GET /camera/frame.jpg`.
-  Module optionnel (`CAMERA_ENABLED=false` par défaut), supervision `usb_cam`
-  séparée (`CAMERA_AUTOSTART`), dernière image seulement, plafond 2 Mio et
-  expiration après 1 s. Deux workers HTTP caméra séparés des commandes moteur.
-  `client/camera.py` fournit `CameraClient` sans dépendance externe ; l'interface
-  affiche des JPEG répétés à au plus 5 images/s, avec pause et suspension si cachée.
-  Voir `docs/CAMERA.md` pour l'activation sur le robot. Les tests logiciels ne
-  constituent pas encore une validation du transport HTTP avec la caméra réelle.
-  `/watch` garde sa limite JSON de 32 Kio et n'est pas un transport vidéo.
-  Le lieu d'exécution de l'analyse de posture reste à choisir.
+- Le flux caméra n'est pas encore intégré au bridge. L'observation générique
+  des topics dans `bridge/src/watch.rs` limite chaque message JSON à 32 Kio ;
+  elle ne constitue pas un transport vidéo adapté. Le lieu d'exécution de
+  l'analyse de posture et le transport des images restent à choisir.
 - Capteurs portés, commande du laser, algorithmes de posture et de choix du pas,
   ainsi que leurs interfaces restent à préciser.
 - Ne pas présenter un score clinique ou une recommandation de pas comme validés.

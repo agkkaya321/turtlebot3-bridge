@@ -6,6 +6,5 @@
 !src/**
 !tools/
 !tools/smoke_test.py
-!tools/camera_smoke_test.py
 !run.sh
 !robot.env.example

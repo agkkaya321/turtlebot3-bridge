@@ -416,7 +416,6 @@ les durées du dernier tour restent accessibles dans `robot.cycle_timings_ms`.
 | Message | Cause |
 |---|---|
 | `Bridge injoignable sur http://127.0.0.1:8000` | `./start.sh` ne tourne pas (tunnel fermé) |
-| `HTTP 404 from …/ready` | Le serveur répond, mais ne fournit pas la route du bridge : autre serveur sur ce port ou bridge incompatible. Passer avec `--url` l'URL du tunnel API affichée par `./start.sh` ; le port peut différer de 8000. |
 | `En attente du robot : …` | Robot `not ready` ; la raison est affichée (calibration ≈ 30 s, moteurs désactivés…) |
 | `Consigne trop rapide` | Une roue dépasse la limite ; réduire la vitesse ou la rotation |
 | `Tour trop lent` | `loop()` contient un `sleep()`, une action lente, ou le Wi-Fi est lent |

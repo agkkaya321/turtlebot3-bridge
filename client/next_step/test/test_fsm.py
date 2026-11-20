@@ -79,16 +79,23 @@ class FiniteStateMachineTests(unittest.TestCase):
     def test_main_dispatches_each_cycle_to_the_current_state(self, _):
         robot = Main()
         robot.bridge = Mock()
+        with patch("next_step.finite_state_machine.states.posture_checking_state.PostureDetector") as detector:
+            robot.setup()
+        self.assertIs(robot.fsm.get_current_state(), robot.fsm.states[2])
+        detector.return_value.start.assert_called_once()
+        with patch.object(robot.fsm.states[2], "loop") as posture_loop:
+            robot.loop()
+            robot.loop()
+            robot.fsm.transition(0)
+            robot.loop()
+        self.assertEqual(posture_loop.call_count, 2)
+        detector.return_value.close.assert_called_once()
+        self.assertEqual(robot.command, (0, 0))
+
+    def test_lidar_can_still_be_selected_explicitly(self, _):
+        robot = Main(initial_state=1)
         robot.setup()
         self.assertIs(robot.fsm.get_current_state(), robot.fsm.states[1])
-        with patch.object(robot.fsm.states[1], "loop") as follow_loop:
-            robot.loop()
-            robot.loop()
-            robot.fsm.transition(2)
-            robot.loop()
-        self.assertEqual(follow_loop.call_count, 2)
-        # The setup sound plays once; loop() does not repeat it.
-        self.assertEqual(robot.bridge.sound.call_count, 1)
 
 
 if __name__ == "__main__":

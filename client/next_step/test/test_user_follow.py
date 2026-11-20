@@ -4,7 +4,7 @@ import math
 import unittest
 from unittest.mock import patch
 
-from next_step.lidar import analyze_scan, cluster_width, extract_clusters, extract_target
+from next_step.leg_detection.lidar import analyze_scan, cluster_width, extract_clusters, extract_target
 from next_step.finite_state_machine.states.user_follow_state import UserFollowState
 from next_step.main import Main
 
@@ -98,7 +98,7 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(cluster_width([(0, 0), (0.3, 0.4), (0, 0)]), 0.5)
         for width in (0.049, 0.05, 0.20, 0.201):
             cluster = [(1, 0), (1, width)]
-            with self.subTest(width=width), patch("next_step.lidar.extract_clusters", return_value=[cluster]):
+            with self.subTest(width=width), patch("next_step.leg_detection.lidar.extract_clusters", return_value=[cluster]):
                 if 0.05 <= width <= 0.20:
                     self.assertEqual(extract_target({}), (1, width / 2))
                 else:
@@ -250,7 +250,7 @@ class FollowingTests(unittest.TestCase):
         self.state.debug = True
         self.set_scan(scan_at(2))
         with patch.object(self.robot, "log") as log, patch(
-                "next_step.lidar.extract_clusters", wraps=extract_clusters) as clusters:
+                "next_step.leg_detection.lidar.extract_clusters", wraps=extract_clusters) as clusters:
             self.state.loop()
             output = "\n".join(call.args[0] for call in log.call_args_list)
             self.assertEqual(output, "Legs detected — distance: 2.00 m — adjusting: forward.")

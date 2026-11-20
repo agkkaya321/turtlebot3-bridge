@@ -2,7 +2,7 @@ from collections import deque
 import math
 from time import perf_counter
 
-from ...lidar import TargetTracker, polar_to_cartesian
+from ...leg_detection.lidar import TargetTracker, polar_to_cartesian
 from ..state import State
 
 DISTANCE_THRESHOLD = 1.5  # Meters.

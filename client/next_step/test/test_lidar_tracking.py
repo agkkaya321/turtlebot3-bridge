@@ -7,10 +7,10 @@ check candidate association, not extraction.
 import unittest
 from unittest.mock import patch
 
-from next_step.lidar import TargetTracker, select_target
+from next_step.leg_detection.lidar import TargetTracker, select_target
 from next_step.main import Main
 from next_step.finite_state_machine.states.user_follow_state import UserFollowState
-from test_user_follow import scan_at
+from .test_user_follow import scan_at
 
 
 def candidate(x, y):

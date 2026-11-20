@@ -17,10 +17,12 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import ProxyHandler, Request, build_opener
+from posture import PostureStore
 
 HERE = Path(__file__).resolve().parent
 MAX_BODY = 4096
 opener = build_opener(ProxyHandler({}))
+POSTURE = PostureStore()
 
 
 def parse_args():
@@ -78,9 +80,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def body(self):
+    def body(self, max_size=MAX_BODY):
         length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY:
+        if length < 0 or length > max_size:
             raise ValueError("Request body too large")
         return self.rfile.read(length) if length else b""
 
@@ -135,6 +137,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlparse(self.path)
+        if url.path == "/local/posture":
+            return self.send(200, POSTURE.snapshot())
         if url.path == "/api/camera/frame":
             return self.camera_frame()
         if url.path in ("/", "/index.html"):
@@ -155,6 +159,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
+        if url.path == "/local/posture":
+            try:
+                POSTURE.update(json.loads(self.body(max_size=750_000)))
+            except (ValueError, UnicodeDecodeError) as error:
+                return self.send(400, {"error": str(error)})
+            return self.send(200, {"ok": True})
         if url.path.startswith("/api/"):
             return self.proxy("POST")
         actions = {"/local/restart": ("stop", "start"), "/local/stop": ("stop",),

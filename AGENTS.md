@@ -59,11 +59,12 @@
 - Les états présents sont `initial`, `posture_checking`, `user_follow`,
   `laser_aiming_left` et `laser_aiming_right`. `user_follow` remplace
   `moving_backward` (identifiant 1) et commande désormais les déplacements.
-  Les actions de posture et de laser restent des messages de console.
+  L'état de posture analyse la caméra avec MediaPipe sur le Mac ; les actions
+  de laser restent des messages de console.
   Chaque état dispose de `enter()`, `loop()`, `exit()` et de `self.robot`.
   Le mécanisme de transition par identifiant est intégré ; les conditions de
   transition métier restent à définir.
-- Le suivi LiDAR utilise `client/next_step/lidar.py` pour extraire une ou deux
+- Le suivi LiDAR utilise `client/next_step/leg_detection/lidar.py` pour extraire une ou deux
   jambes candidates dans un demi-disque avant de rayon strictement inférieur
   à 3 m depuis le LiDAR (`x > 0`, sans limite latérale supplémentaire).
   La limite radiale est réglée par `ROI_MAX_DISTANCE`. `UserFollowState` applique
@@ -80,8 +81,9 @@
   Absence de cible, ambiguïté ou scan vieux de plus de 0,5 s : arrêt et buffer
   de distance vidé, même si la position précédente est encore mémorisée.
   L'entrée et la sortie de l'état remettent consigne, mémoire et buffer à zéro.
-  `Main.setup()` active cet état ; lancer le programme peut donc déplacer
-  le robot. Un premier lancement sur le robot est rapporté par l'utilisateur,
+  `--state user_follow` active cet état et peut déplacer le robot sans `--dry-run`.
+  `Main.setup()` active désormais `posture_checking` par défaut, à vitesse nulle.
+  Un premier lancement du suivi sur le robot est rapporté par l'utilisateur,
   avec des tours dépassant 100 ms ; la détection des jambes et le suivi physique
   restent à confirmer. Tests automatisés sur scans synthétiques et sélection
   vérifiée sur des centres retranscrits des logs (pas de replay de scans réels) ; pas
@@ -97,10 +99,19 @@
   au Raspberry Pi du robot pour filmer la personne qui s'entraîne. La série 2,
   tâche 6, utilise ce modèle avec `usb_cam` et `pixel_format:=mjpeg2rgb` :
   https://github.com/nembrinj/protofablab/blob/main/2026/assignments/AN_02/html/AN_02_ROS.html
-- Le flux caméra n'est pas encore intégré au bridge. L'observation générique
-  des topics dans `bridge/src/watch.rs` limite chaque message JSON à 32 Kio ;
-  elle ne constitue pas un transport vidéo adapté. Le lieu d'exécution de
-  l'analyse de posture et le transport des images restent à choisir.
+- Le bridge expose le flux caméra en JPEG via `GET /camera/frame?after=N`.
+  `client/next_step/posture_analysis/decode_live_stream.py` l'acquiert et le
+  convertit BGR → RGB. `posture_detector.py` remplace `mediapipe_test.py` et
+  exécute MediaPipe LIVE_STREAM sur le Mac, hors de la boucle FSM.
+  `posture_checking` maintient une consigne nulle et termine NextStep après
+  10 s sans détection (également si le flux ou l'analyse devient indisponible).
+  La détection remet le délai à zéro ; l'absence est signalée dans la console.
+  Le programme libère le détecteur à la sortie ; le bridge et l'UI restent ouverts.
+  `POST/GET /local/posture` sur le serveur UI transporte en mémoire l'image
+  analysée et ses 33 points ; l'affichage expire après 3 s. URL UI configurable
+  par `--ui-url`. OpenCV/MediaPipe et le modèle `.task` sont requis uniquement
+  pour l'analyse de posture ; voir `docs/POSTURE.md`. Pas de validation matérielle
+  de cette analyse ni de score clinique implémenté.
 - Capteurs portés, commande du laser, algorithmes de posture et de choix du pas,
   ainsi que leurs interfaces restent à préciser.
 - Ne pas présenter un score clinique ou une recommandation de pas comme validés.

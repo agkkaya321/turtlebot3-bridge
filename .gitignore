@@ -4,6 +4,8 @@
 # Python
 __pycache__/
 *.pyc
+.venv/
+client/next_step/posture_analysis/*.task
 .ipynb_checkpoints/
 
 # Rust : compilation locale et résultat de ./start.sh build (recompilable)

@@ -88,6 +88,19 @@ class BridgeClient:
 
     # --- Sensors -------------------------------------------------------
 
+    def camera_frame(self, after=0):
+        """Return (JPEG bytes, sequence) or None after 2.5 s without a new frame.
+
+        Use a separate BridgeClient in a worker: this long poll must not block
+        the robot's control loop. No OpenCV dependency in the transport layer.
+        """
+        with self._http.open(self.url + f"/camera/frame?after={int(after)}", timeout=4.0) as response:
+            if response.status == 204:
+                return None
+            if response.headers.get_content_type() != "image/jpeg":
+                raise ValueError("La caméra n'a pas renvoyé un JPEG.")
+            return response.read(), int(response.headers["X-Frame-Seq"])
+
     def telemetry(self):
         """All sensors: odom, sensor_state, battery, imu, scan, magnetic_field,
         joint_states, plus watched topics, services, and limits."""

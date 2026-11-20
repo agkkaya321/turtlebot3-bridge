@@ -28,7 +28,7 @@ class Main(Robot):
         try:
             super().run()
         finally:
-            # Robot.run() arrête les moteurs avant de libérer caméra / MediaPipe.
+            # Robot.run() stops the motors before releasing the camera and MediaPipe.
             if self.fsm is not None:
                 self.fsm.get_current_state().exit()
 

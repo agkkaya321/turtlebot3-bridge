@@ -36,19 +36,24 @@ Rust n'est nécessaire pour cette modification.
 
 NextStep commence désormais dans `posture_checking` (état 2), avec une consigne
 de mouvement nulle. `--dry-run` inhibe les commandes moteurs, mais utilise le
-vrai flux caméra. La carte **Caméra**, section **Posture · MediaPipe**, affiche
-l'image analysée, les points visibles et les connexions du squelette.
+vrai flux caméra. La carte **Caméra** affiche les points visibles et les connexions
+du squelette directement sur sa vue principale, avec l'image exacte analysée.
+Lorsque MediaPipe est actif, l'interface utilise ce flux local et ne demande pas
+un deuxième flux brut au robot. Si l'analyse devient inactive ou expire, elle
+revient automatiquement à la caméra brute. **Pause** fige la vue et suspend ses
+requêtes d'images ; le détecteur Python continue son travail. **Capture** enregistre
+l'image affichée avec ses points. Le cadrage suit la rotation et les dimensions
+de l'image, en portrait comme en paysage.
 
-La première détection dispose de 10 secondes après l'initialisation de MediaPipe.
-Chaque résultat contenant une personne remet le délai à 10 secondes. En son
-absence, la console affiche « La personne n'est pas sur l'image » au plus une
-fois par seconde. Après 10 secondes consécutives sans détection, NextStep appelle
-`Robot.finish()`, arrête le mouvement et libère le détecteur. Ctrl+C et les sorties
-d'état libèrent également les ressources. **L'interface, le bridge et le Raspberry
-Pi restent allumés.**
+L'analyse continue sans limite de temps lorsqu'aucune personne n'est détectée.
+La console affiche « La personne n'est pas sur l'image » uniquement au changement
+de situation, sans compte à rebours. Ctrl+C ou une sortie d'état libèrent le
+détecteur. **L'interface, le bridge et le Raspberry Pi restent allumés.**
 
-Une caméra coupée, un flux invalide ou l'absence de réponse de MediaPipe ne
-prolongent pas ce délai ; un message distinct signale l'indisponibilité.
+Les logs techniques OpenCV/MediaPipe (informations, avertissements et debug)
+sont filtrés, y compris les messages natifs C++. Les erreurs restent visibles.
+Une caméra coupée, un flux invalide ou l'absence de réponse de MediaPipe sont
+signalés sans arrêt automatique lié à l'absence de personne.
 Les images affichées expirent après 3 secondes pour éviter de conserver une
 ancienne posture à l'écran si le processus disparaît.
 
@@ -89,12 +94,13 @@ python3 -B -m unittest discover -s ui -p 'test_*.py'
 ```
 
 Les tests couvrent l'acquisition, le décodage JPEG et la conversion des couleurs
-(si OpenCV est installé), le délai d'absence, les résultats anciens, l'arrêt de
-l'état et l'expiration de l'affichage. Ils ne constituent pas une validation du
+(si OpenCV est installé), l'attente sans délai d'arrêt, les résultats anciens,
+le filtrage des logs, la sortie de l'état et l'expiration de l'affichage.
+Ils ne constituent pas une validation du
 suivi de posture sur la C270 ni un score clinique.
 
 Vérification locale effectuée avec MediaPipe 0.10.35 et OpenCV 4.14.0 :
 vrai callback LIVE_STREAM sur des images sans personne servies par un faux
-bridge HTTP, arrêt du programme après le délai et effacement de l'UI. Affichage
+bridge HTTP et effacement de l'UI à la sortie. Affichage
 du squelette vérifié dans Chrome avec 33 points synthétiques. La détection d'une
 personne et le suivi sur le flux réel de la C270 restent à confirmer.

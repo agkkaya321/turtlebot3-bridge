@@ -11,7 +11,7 @@ sur le réseau Wi-Fi du robot, **sans internet et sans rien installer sur le rob
   et une interface web.
 - **Client Python `tb3.Robot`** : programmer un comportement façon Arduino (`setup()` puis `loop()`).
 - **Posture NextStep** : analyse MediaPipe sur le Mac, points du squelette dans
-  l'interface et arrêt après 10 s sans personne détectée. [Installation et lancement](docs/POSTURE.md).
+  l'interface et acquisition continue même sans personne détectée. [Installation et lancement](docs/POSTURE.md).
 
 ```
 Mac                                                     Raspberry Pi (TurtleBot3)

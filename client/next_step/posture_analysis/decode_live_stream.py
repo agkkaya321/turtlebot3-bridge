@@ -1,4 +1,4 @@
-"""Acquisition du flux JPEG HTTP du robot, sans accès à la webcam du Mac."""
+"""Read the robot's HTTP JPEG stream without accessing the Mac webcam."""
 
 import time
 
@@ -12,11 +12,11 @@ class LiveStreamDecoder:
         self.timestamp_ms = -1
 
     def get_image(self):
-        """Obtenir (bgr_frame, timestamp_ms), ou None sans nouvelle image.
+        """Return (bgr_frame, timestamp_ms), or None when no new frame is available.
 
-        L'horodatage est monotone sur le Mac ; il indique la réception, pas
-        l'heure d'exposition de la caméra. Un 204 réinitialise le curseur pour
-        permettre la reprise après un redémarrage du bridge.
+        The timestamp uses the Mac monotonic clock and marks reception, not
+        camera exposure. A 204 response resets the cursor so acquisition
+        can resume after the bridge restarts.
         """
         import cv2
         import numpy as np
@@ -28,14 +28,14 @@ class LiveStreamDecoder:
         jpeg, sequence = frame
         bgr_frame = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
         if bgr_frame is None:
-            raise ValueError("Image JPEG de la caméra invalide.")
+            raise ValueError("Invalid camera JPEG image.")
         self.sequence = sequence
         self.timestamp_ms = max(self.timestamp_ms + 1, time.monotonic_ns() // 1_000_000)
         return bgr_frame, self.timestamp_ms
 
     @staticmethod
     def bgr_to_rgb(bgr_frame):
-        """Convertir BGR (OpenCV) en RGB (MediaPipe)."""
+        """Convert BGR (OpenCV) to RGB (MediaPipe)."""
         import cv2
 
         return cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)

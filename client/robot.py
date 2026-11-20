@@ -98,7 +98,7 @@ class BridgeClient:
             if response.status == 204:
                 return None
             if response.headers.get_content_type() != "image/jpeg":
-                raise ValueError("La caméra n'a pas renvoyé un JPEG.")
+                raise ValueError("The camera did not return a JPEG.")
             return response.read(), int(response.headers["X-Frame-Seq"])
 
     def telemetry(self):

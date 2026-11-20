@@ -76,8 +76,7 @@ pre { background: var(--soft); border-radius: 8px; padding: 10px; overflow: auto
 kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; }
 select { font: inherit; background: var(--soft); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
 .camview { position: relative; aspect-ratio: 16 / 9; max-height: 72vh; margin-inline: auto; background: var(--soft); border-radius: 10px; overflow: hidden; }
-.camview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-.camview img:not([src]) { visibility: hidden; }
+.camview canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: transparent; }
 #camOverlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   text-align: center; padding: 16px; color: var(--muted); }
 #camOverlay.dim { background: color-mix(in srgb, var(--card) 72%, transparent); color: var(--ink); font-weight: 600; }
@@ -136,13 +135,12 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
       </select>
       <button id="camSnap" title="Enregistrer l'image affichée">Capture</button>
       <button id="camToggle">Pause</button></span></h2>
-    <div class="camview"><img id="camImg" alt="Image de la caméra du robot"><div id="camOverlay">En attente de la caméra…</div></div>
+    <div class="camview"><canvas id="camCanvas" width="480" height="270" aria-label="Caméra du robot et points de posture"></canvas><div id="camOverlay">En attente de la caméra…</div></div>
     <div class="note" id="camStats">—</div>
     <div class="note" id="camDriver"></div>
     <div class="note" id="camError"></div>
     <div class="sub">Posture · MediaPipe <span class="age" id="poseStatus" role="status">Analyse inactive</span></div>
-    <canvas id="poseCanvas" width="480" height="270" hidden aria-label="Image analysée et points de posture"></canvas>
-    <div class="note">Les points sont superposés à l'image analysée. Sans personne détectée pendant 10 s, le programme NextStep s'arrête.</div>
+    <div class="note">Les points sont superposés à l'image analysée. L'analyse continue en l'absence de personne.</div>
   </section>
 
   <section class="card">
@@ -688,10 +686,11 @@ const CAM_PRESETS = {
   std: { width: 480, quality: 60, fps: 15 },
   hq: { width: 640, quality: 80, fps: 15 },
 };
-const cam = { seq: 0, on: true, url: null, last: 0, shown: [], info: null, message: "", changing: false };
+const cam = { seq: 0, on: true, last: 0, shown: [], info: null, message: "", changing: false,
+  poseTimestamp: null, generation: 0, request: null };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/* Même image et mêmes points dans chaque réponse, sans décalage avec la vidéo. */
+/* Each response pairs the analyzed image with its landmarks to keep them aligned. */
 const POSE_CONNECTIONS = [
   [0,1],[1,2],[2,3],[3,7],[0,4],[4,5],[5,6],[6,8],[9,10],
   [11,12],[11,13],[13,15],[15,17],[15,19],[15,21],[17,19],
@@ -699,98 +698,112 @@ const POSE_CONNECTIONS = [
   [11,23],[12,24],[23,24],[23,25],[24,26],[25,27],[26,28],
   [27,29],[28,30],[29,31],[30,32],[27,31],[28,32],
 ];
-async function postureLoop() {
-  let lastTimestamp = -1;
-  const canvas = $("#poseCanvas"), ctx = canvas.getContext("2d");
-  for (;;) {
-    try {
-      if (!document.hidden) {
-        const response = await fetch("/local/posture", { cache: "no-store", signal: AbortSignal.timeout(1500) });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        canvas.hidden = !data.active;
-        if (!data.active) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          lastTimestamp = -1;
-          $("#poseStatus").textContent = "Analyse inactive ou images indisponibles";
-        } else {
-          $("#poseStatus").textContent = data.poses.length ? "Personne détectée" : "La personne n'est pas sur l'image";
-          if (data.timestamp_ms !== lastTimestamp) {
-            const img = new Image();
-            img.src = `data:image/jpeg;base64,${data.image}`;
-            await img.decode();
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            ctx.drawImage(img, 0, 0);
-            ctx.strokeStyle = "#40ef98"; ctx.fillStyle = "#ffe166";
-            ctx.lineWidth = Math.max(2, canvas.width / 240);
-            const visible = (p) => p && p.visibility >= 0.5 && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
-            for (const pose of data.poses) {
-              for (const [a, b] of POSE_CONNECTIONS) {
-                if (!visible(pose[a]) || !visible(pose[b])) continue;
-                ctx.beginPath();
-                ctx.moveTo(pose[a].x * canvas.width, pose[a].y * canvas.height);
-                ctx.lineTo(pose[b].x * canvas.width, pose[b].y * canvas.height);
-                ctx.stroke();
-              }
-              for (const p of pose) {
-                if (!visible(p)) continue;
-                ctx.beginPath(); ctx.arc(p.x * canvas.width, p.y * canvas.height, 3, 0, 2 * Math.PI); ctx.fill();
-              }
-            }
-            lastTimestamp = data.timestamp_ms;
-          }
-        }
-      }
-    } catch (_) {
-      canvas.hidden = true;
-      lastTimestamp = -1;
-      $("#poseStatus").textContent = "Affichage posture indisponible";
-    }
-    await sleep(100);
+// One acquisition loop chooses the analyzed frame or the raw camera fallback.
+// It never requests the raw stream while fresh posture frames are available.
+async function cameraRequest(path, decode, timeout) {
+  const controller = new AbortController();
+  cam.request = controller;
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(path, { cache: "no-store", signal: controller.signal });
+    return { response, data: response.status === 204 ? null : await decode(response) };
+  } finally {
+    clearTimeout(timer);
+    if (cam.request === controller) cam.request = null;
   }
+}
+
+function drawPose(ctx, poses, width, height) {
+  ctx.strokeStyle = "#40ef98"; ctx.fillStyle = "#ffe166";
+  ctx.lineWidth = Math.max(2, width / 240);
+  const visible = (p) => p && p.visibility >= 0.5 && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
+  for (const pose of poses) {
+    for (const [a, b] of POSE_CONNECTIONS) {
+      if (!visible(pose[a]) || !visible(pose[b])) continue;
+      ctx.beginPath();
+      ctx.moveTo(pose[a].x * width, pose[a].y * height);
+      ctx.lineTo(pose[b].x * width, pose[b].y * height);
+      ctx.stroke();
+    }
+    for (const p of pose) {
+      if (!visible(p)) continue;
+      ctx.beginPath(); ctx.arc(p.x * width, p.y * height, 3, 0, 2 * Math.PI); ctx.fill();
+    }
+  }
+}
+
+async function showCameraFrame(src, poses, info, generation) {
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  // A response already in flight must not change a paused or hidden view.
+  if (!cam.on || document.hidden || generation !== cam.generation) return false;
+  const canvas = $("#camCanvas"), ctx = canvas.getContext("2d");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  $(".camview").style.aspectRatio = `${canvas.width} / ${canvas.height}`;
+  ctx.drawImage(img, 0, 0);
+  drawPose(ctx, poses, canvas.width, canvas.height);
+  cam.last = performance.now();
+  cam.shown.push([cam.last, info.size]);
+  cam.message = "";
+  cam.info = { ...info, width: canvas.width, height: canvas.height };
+  renderCamera();
+  return true;
 }
 
 async function cameraLoop() {
   for (;;) {
     if (!cam.on || document.hidden) { await sleep(300); continue; }
-    const started = performance.now();
-    let response;
+    const generation = cam.generation;
     try {
-      response = await fetch(`/api/camera/frame?after=${cam.seq}`, { cache: "no-store" });
+      let posture = null;
+      try {
+        const { response, data } = await cameraRequest("/local/posture", (r) => r.json(), 1500);
+        if (response.ok) posture = data;
+      } catch (_) { /* The raw camera remains available if posture analysis fails. */ }
+      if (!cam.on || document.hidden || generation !== cam.generation) continue;
+      if (posture?.active) {
+        if (posture.timestamp_ms !== cam.poseTimestamp) {
+          const shown = await showCameraFrame(`data:image/jpeg;base64,${posture.image}`, posture.poses,
+            { source: "posture", age: posture.age_ms, size: Math.floor(posture.image.length * 3 / 4) }, generation);
+          if (shown) {
+            cam.poseTimestamp = posture.timestamp_ms;
+            $("#poseStatus").textContent = posture.poses.length ? "Personne détectée" : "La personne n'est pas sur l'image";
+          }
+        }
+        await sleep(100);
+        continue;
+      }
+      $("#poseStatus").textContent = "Analyse inactive · caméra brute";
+      const started = performance.now();
+      const { response, data } = await cameraRequest(`/api/camera/frame?after=${cam.seq}`,
+        (r) => r.ok ? r.blob() : r.json().catch(() => ({})), 6000);
+      if (!cam.on || document.hidden || generation !== cam.generation) continue;
+      if (response.status === 204) {
+        cam.seq = 0; // Recover if the bridge restarted with a new sequence counter.
+        cam.message = "Pas d'image reçue du robot depuis 2,5 s";
+        continue;
+      }
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      const header = (name) => response.headers.get(name);
+      cam.seq = Number(header("X-Frame-Seq")) || cam.seq;
+      const url = URL.createObjectURL(data);
+      try {
+        const shown = await showCameraFrame(url, [], {
+          source: "raw", quality: header("X-Frame-Quality"), encode: header("X-Frame-Encode-Ms"),
+          age: header("X-Frame-Age-Ms"), size: data.size, transfer: Math.round(performance.now() - started),
+        }, generation);
+        if (shown) cam.poseTimestamp = null;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     } catch (error) {
-      cam.message = `Interface injoignable : ${error.message}`;
-      await sleep(1000);
-      continue;
+      if (cam.on && generation === cam.generation) {
+        cam.message = `Caméra indisponible : ${error.message}`;
+        await sleep(1000);
+      }
     }
-    if (response.status === 204) { cam.message = "Pas d'image reçue du robot depuis 2,5 s"; continue; }
-    if (!response.ok) {
-      let text = `HTTP ${response.status}`;
-      try { text = (await response.json()).error || text; } catch (_) { /* corps vide */ }
-      cam.message = text;
-      await sleep(1000);
-      continue;
-    }
-    const blob = await response.blob();
-    const header = (name) => response.headers.get(name);
-    cam.seq = Number(header("X-Frame-Seq")) || cam.seq;
-    const url = URL.createObjectURL(blob);
-    const img = $("#camImg");
-    // Paysage 16:9, portrait (webcam tournée)… : le cadre suit l'image.
-    const [w, h] = [Number(header("X-Frame-Width")), Number(header("X-Frame-Height"))];
-    if (w && h) $(".camview").style.aspectRatio = `${w} / ${h}`;
-    img.src = url;
-    try { await img.decode(); } catch (_) { /* image affichée au chargement */ }
-    if (cam.url) URL.revokeObjectURL(cam.url);
-    cam.url = url;
-    cam.last = performance.now();
-    cam.shown.push([cam.last, blob.size]);
-    cam.message = "";
-    cam.info = {
-      width: header("X-Frame-Width"), height: header("X-Frame-Height"), quality: header("X-Frame-Quality"),
-      encode: header("X-Frame-Encode-Ms"), age: header("X-Frame-Age-Ms"), size: blob.size,
-      transfer: Math.round(cam.last - started),
-    };
   }
 }
 
@@ -807,7 +820,8 @@ function renderCamera() {
   const i = cam.info;
   $("#camStats").textContent = i && fresh
     ? `${i.width}×${i.height} · ${fps.toFixed(1)} i/s · ${(i.size / 1024).toFixed(1)} Ko/image · ${mbps.toFixed(2)} Mbit/s · `
-      + `qualité ${i.quality} · encodage ${i.encode} ms · âge au départ ${i.age} ms · transfert ${i.transfer} ms`
+      + (i.source === "posture" ? `MediaPipe · âge de l’image analysée ${i.age} ms · flux local`
+        : `qualité ${i.quality} · encodage ${i.encode} ms · âge au départ ${i.age} ms · transfert ${i.transfer} ms`)
     : "—";
 }
 
@@ -856,23 +870,34 @@ $("#camRotate").onchange = async (e) => {
 };
 $("#camToggle").onclick = () => {
   cam.on = !cam.on;
+  cam.generation++;
+  cam.request?.abort();
+  if (!cam.on) $("#poseStatus").textContent = "En pause";
   $("#camToggle").textContent = cam.on ? "Pause" : "Reprendre";
   renderCamera();
 };
 $("#camSnap").onclick = () => {
-  if (!cam.url) { toast("Aucune image à enregistrer"); return; }
-  const link = document.createElement("a");
-  link.href = cam.url;
-  link.download = `camera-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
-  link.click();
+  if (!cam.last) { toast("Aucune image à enregistrer"); return; }
+  $("#camCanvas").toBlob((blob) => {
+    if (!blob) { toast("Capture impossible"); return; }
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url;
+    link.download = `camera-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, "image/jpeg", 0.9);
 };
+document.addEventListener("visibilitychange", () => {
+  cam.generation++;
+  if (document.hidden) cam.request?.abort();
+});
 
 /* ---------- Boucles ---------- */
 pollStatus(); pollTelemetry(); refreshTopics();
 setInterval(pollStatus, 500);
 setInterval(pollTelemetry, 200);
 setInterval(refreshTopics, 5000);
-cameraLoop(); pollCamera(); postureLoop();
+cameraLoop(); pollCamera();
 setInterval(renderCamera, 500);
 setInterval(pollCamera, 2000);
 </script>

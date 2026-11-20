@@ -103,12 +103,17 @@
   `client/next_step/posture_analysis/decode_live_stream.py` l'acquiert et le
   convertit BGR → RGB. `posture_detector.py` remplace `mediapipe_test.py` et
   exécute MediaPipe LIVE_STREAM sur le Mac, hors de la boucle FSM.
-  `posture_checking` maintient une consigne nulle et termine NextStep après
-  10 s sans détection (également si le flux ou l'analyse devient indisponible).
-  La détection remet le délai à zéro ; l'absence est signalée dans la console.
+  `posture_checking` maintient une consigne nulle et continue sans limite de
+  temps sans personne détectée, sans compte à rebours ni arrêt pour absence.
+  L'absence est signalée dans la console uniquement au changement de situation.
+  Les logs techniques natifs OpenCV/MediaPipe sont filtrés ; les erreurs restent
+  visibles. Les images anciennes continuent d'expirer pour éviter un affichage figé.
   Le programme libère le détecteur à la sortie ; le bridge et l'UI restent ouverts.
   `POST/GET /local/posture` sur le serveur UI transporte en mémoire l'image
-  analysée et ses 33 points ; l'affichage expire après 3 s. URL UI configurable
+  analysée et ses 33 points ; l'affichage expire après 3 s. La caméra principale
+  affiche ce flux avec les points, sans deuxième vue ni acquisition brute UI
+  simultanée ; elle revient au flux brut si l'analyse est inactive. Pause et
+  Capture s'appliquent à cette vue unique. URL UI configurable
   par `--ui-url`. OpenCV/MediaPipe et le modèle `.task` sont requis uniquement
   pour l'analyse de posture ; voir `docs/POSTURE.md`. Pas de validation matérielle
   de cette analyse ni de score clinique implémenté.

@@ -1,9 +1,11 @@
-"""Acquisition, délai d'absence et cycle de vie, sans robot."""
+"""Test continuous acquisition, presence, and lifecycle without a robot."""
 
 from email.message import Message
 import importlib.util
+from pathlib import Path
+import subprocess
+import sys
 import threading
-import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -15,34 +17,62 @@ from next_step.finite_state_machine.states.posture_checking_state import Posture
 
 
 class PresenceTests(unittest.TestCase):
-    def test_initial_grace_then_exact_timeout(self):
-        presence = PosePresence(100)
-        self.assertFalse(presence.status(109.999)["expired"])
-        self.assertTrue(presence.status(110)["expired"])
+    def test_no_deadline_when_waiting_for_first_result(self):
+        presence = PosePresence()
+        self.assertEqual(presence.status(3600), {"present": False, "fresh": False})
 
-    def test_detection_resets_deadline_but_absence_does_not(self):
-        presence = PosePresence(100)
+    def test_presence_can_return_after_a_long_absence(self):
+        presence = PosePresence()
         presence.observe(True, 109)
         presence.observe(False, 110)
-        self.assertFalse(presence.status(118.999)["expired"])
-        self.assertTrue(presence.status(119)["expired"])
-        presence.observe(True, 119)
-        self.assertFalse(presence.status(120)["expired"])
+        self.assertFalse(presence.status(3600)["present"])
+        presence.observe(True, 3600)
+        self.assertEqual(presence.status(3601), {"present": True, "fresh": True})
 
-    def test_stale_result_and_out_of_order_callback_do_not_extend_timeout(self):
-        presence = PosePresence(100)
+    def test_stale_result_and_out_of_order_callback_do_not_restore_presence(self):
+        presence = PosePresence()
         presence.observe(True, 101)
         presence.observe(False, 102)
         presence.observe(True, 100.5)
         self.assertFalse(presence.status(103)["present"])
         self.assertFalse(presence.status(106)["fresh"])
-        self.assertTrue(presence.status(111)["expired"])
 
     def test_frozen_positive_result_expires(self):
-        presence = PosePresence(100)
+        presence = PosePresence()
         presence.observe(True, 101)
         self.assertFalse(presence.status(105)["present"])
-        self.assertTrue(presence.status(111)["expired"])
+
+
+class NativeLogTests(unittest.TestCase):
+    def test_native_diagnostics_are_filtered_but_errors_and_stderr_are_restored(self):
+        code = '''
+import os
+from next_step.posture_analysis.native_logs import NativeLogFilter
+logs = NativeLogFilter()
+logs.start()
+os.write(2, b"I0000 00:00:123456.123456 123 gl_context.cc:407] INFO atypical format\\n")
+os.write(2, b"I0000 00:00:00.123456 123 gl_context.cc:407] GL version\\n")
+os.write(2, b"W0000 00:00:00.123456 123 inference_feedback_manager.cc:121] feedback\\n")
+os.write(2, b"INFO: Created TensorFlow Lite XNNPACK delegate for CPU.\\n")
+os.write(2, b"[ WARN:0@0.001] global cap.cpp debug\\n")
+os.write(2, b"E0000 00:00:00.123456 123 graph.cc:1] native failure\\n")
+os.write(2, b"Stop not confirmed: robot disconnected\\n")
+logs.close()
+logs.close()
+os.write(2, b"stderr restored\\n")
+'''
+        result = subprocess.run([sys.executable, "-B", "-c", code],
+                                cwd=Path(__file__).resolve().parents[2],
+                                capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(b"GL version", result.stderr)
+        self.assertNotIn(b"atypical format", result.stderr)
+        self.assertNotIn(b"feedback", result.stderr)
+        self.assertNotIn(b"TensorFlow", result.stderr)
+        self.assertNotIn(b"cap.cpp", result.stderr)
+        self.assertIn(b"native failure", result.stderr)
+        self.assertIn(b"robot disconnected", result.stderr)
+        self.assertIn(b"stderr restored", result.stderr)
 
 
 class CameraTransportTests(unittest.TestCase):
@@ -79,7 +109,7 @@ class CameraTransportTests(unittest.TestCase):
             bridge.camera_frame()
 
 
-@unittest.skipUnless(importlib.util.find_spec("cv2"), "OpenCV optionnel absent")
+@unittest.skipUnless(importlib.util.find_spec("cv2"), "Optional OpenCV dependency is not installed")
 class DecoderTests(unittest.TestCase):
     def test_real_jpeg_decoding_rgb_conversion_and_monotone_timestamps(self):
         import cv2
@@ -111,21 +141,27 @@ class DecoderTests(unittest.TestCase):
 
 @patch("builtins.print")
 class PostureStateTests(unittest.TestCase):
-    def test_state_stops_motion_waits_then_finishes_and_closes(self, output):
+    def test_state_keeps_waiting_without_finishing_or_repeating_absence_message(self, output):
         robot = Main()
         robot.forward(.05)
         state = PostureCheckingState(robot)
         with patch("next_step.finite_state_machine.states.posture_checking_state.PostureDetector") as factory:
             detector = factory.return_value
-            detector.status.return_value = {"present": False, "fresh": True, "remaining": 9, "expired": False, "error": None}
+            detector.status.return_value = {"present": False, "fresh": True, "error": None}
             state.enter()
             self.assertEqual(robot.command, (0, 0))
             state.loop()
             self.assertFalse(robot._finished)
             self.assertTrue(any("La personne n'est pas sur l'image" in str(c) for c in output.call_args_list))
-            detector.status.return_value.update(remaining=0, expired=True)
+            for _ in range(600):
+                state.loop()
+            self.assertFalse(robot._finished)
+            output.assert_called_once_with("La personne n'est pas sur l'image.", flush=True)
+            detector.status.return_value.update(present=True)
             state.loop()
-            self.assertTrue(robot._finished)
+            detector.status.return_value.update(present=False)
+            state.loop()
+            self.assertEqual(output.call_count, 2)
             state.exit()
             detector.close.assert_called_once()
 

@@ -8,7 +8,7 @@ from robot import BridgeClient
 class LiveStreamDecoder:
     def __init__(self, url="http://127.0.0.1:8000"):
         self.bridge = BridgeClient(url)
-        self.sequence = 0
+        self.frame_nb = 0
         self.timestamp_ms = -1
 
     def get_image(self):
@@ -21,16 +21,21 @@ class LiveStreamDecoder:
         import cv2
         import numpy as np
 
-        frame = self.bridge.camera_frame(self.sequence)
+        frame = self.bridge.camera_frame(self.frame_nb)
+
         if frame is None:
-            self.sequence = 0
+            self.frame_nb = 0
             return None
-        jpeg, sequence = frame
+
+        jpeg, frame_nb = frame
         bgr_frame = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+
         if bgr_frame is None:
             raise ValueError("Invalid camera JPEG image.")
-        self.sequence = sequence
+
+        self.frame_nb = frame_nb
         self.timestamp_ms = max(self.timestamp_ms + 1, time.monotonic_ns() // 1_000_000)
+
         return bgr_frame, self.timestamp_ms
 
     @staticmethod

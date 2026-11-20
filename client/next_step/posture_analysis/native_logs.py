@@ -26,15 +26,20 @@ class NativeLogFilter:
         os.environ["OPENCV_LOG_LEVEL"] = "ERROR"
         os.environ["GLOG_minloglevel"] = "2"
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
         logging.getLogger("mediapipe").setLevel(logging.ERROR)
         logging.getLogger("absl").setLevel(logging.ERROR)
+
         self._saved = os.dup(2)
+
         reader, writer = os.pipe()
+
         self._thread = threading.Thread(
             target=self._forward, args=(reader, self._saved),
             name="posture-logs", daemon=True,
         )
         self._thread.start()
+
         try:
             os.dup2(writer, 2)
         finally:

@@ -89,7 +89,7 @@ class BridgeClient:
     # --- Sensors -------------------------------------------------------
 
     def camera_frame(self, after=0):
-        """Return (JPEG bytes, sequence) or None after 2.5 s without a new frame.
+        """Return (JPEG bytes, frame_nb) or None after 2.5 s without a new frame.
 
         Use a separate BridgeClient in a worker: this long poll must not block
         the robot's control loop. No OpenCV dependency in the transport layer.

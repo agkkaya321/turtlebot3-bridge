@@ -129,7 +129,7 @@ class DecoderTests(unittest.TestCase):
         np.testing.assert_array_equal(rgb[:, :, 0], second[:, :, 2])
         np.testing.assert_array_equal(rgb[:, :, 2], second[:, :, 0])
         self.assertIsNone(decoder.get_image())
-        self.assertEqual(decoder.sequence, 0)
+        self.assertEqual(decoder.frame_nb, 0)
 
     def test_bad_jpeg_is_rejected(self):
         decoder = LiveStreamDecoder()

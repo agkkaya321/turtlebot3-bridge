@@ -24,11 +24,13 @@ class PosePresence:
         # An older asynchronous result must not replace the latest one.
         if self.last_result is not None and captured_at <= self.last_result:
             return
+
         self.last_result = captured_at
         self.present = bool(present)
 
     def status(self, now):
         fresh = self.last_result is not None and now - self.last_result < 3.0
+
         return {
             "present": self.present and fresh,
             "fresh": fresh,
@@ -39,24 +41,33 @@ class PostureDetector:
     def __init__(self, bridge_url, ui_url="http://127.0.0.1:8080", model_path=None):
         self.mp = None
         self.cv2 = None
+
         self.stream = LiveStreamDecoder(bridge_url)
         self.ui = BridgeClient(ui_url)
         self.model_path = Path(model_path or os.environ.get("POSE_MODEL", DEFAULT_MODEL)).expanduser()
+
         self._lock = threading.Lock()
         self._stop = threading.Event()
+
         self._thread = None
         self._pending = None
         self._error = None
         self._presence = None
         self._landmarker = None
+
         self._logs = NativeLogFilter()
 
     def start(self):
         if not self.model_path.is_file():
             raise FileNotFoundError(
                 f"MediaPipe model not found: {self.model_path}. "
-                "See docs/POSTURE.md to install the model and dependencies.")
+                "See docs/POSTURE.md to install the model and dependencies."
+            )
+
+        # Starts the logger for debug purposes
         self._logs.start()
+
+        # Try to launch the detector, if not successful, close the logger
         try:
             self._start_detector()
         except BaseException:
@@ -64,15 +75,18 @@ class PostureDetector:
             raise
 
     def _start_detector(self):
+        # Import the libraries
         try:
             import cv2
             import mediapipe as mp
         except ImportError as error:
             raise RuntimeError("Install the dependencies from client/next_step/posture_analysis/requirements.txt") from error
+
         self.cv2, self.mp = cv2, mp
         self._stop.clear()
         self._pending = self._error = None
 
+        # Base script from the tutorial
         options = mp.tasks.vision.PoseLandmarkerOptions(
             base_options=mp.tasks.BaseOptions(model_asset_path=str(self.model_path)),
             running_mode=mp.tasks.vision.RunningMode.LIVE_STREAM,
@@ -80,8 +94,11 @@ class PostureDetector:
             result_callback=self._on_result,
         )
 
+        # Starts the detector
         self._landmarker = mp.tasks.vision.PoseLandmarker.create_from_options(options)
+        # Verifies if there is a person in the frame
         self._presence = PosePresence()
+        # Launch a new thread to run the detector
         self._thread = threading.Thread(target=self._run, name="posture-camera", daemon=True)
         self._thread.start()
 
@@ -89,12 +106,17 @@ class PostureDetector:
         if self._stop.is_set():
             return
         try:
-            poses = [[{"x": float(p.x), "y": float(p.y),
-                       "visibility": float(p.visibility if p.visibility is not None else 1.0)}
-                      for p in pose] for pose in result.pose_landmarks]
+            poses = [[
+                    {
+                        "x": float(p.x),
+                        "y": float(p.y),
+                        "visibility": float(p.visibility if p.visibility is not None else 1.0)
+                    } for p in pose] for pose in result.pose_landmarks]
+
             # Publish the exact callback image, even when MediaPipe drops frames.
             bgr = self.cv2.cvtColor(output_image.numpy_view(), self.cv2.COLOR_RGB2BGR)
             ok, jpeg = self.cv2.imencode(".jpg", bgr, [self.cv2.IMWRITE_JPEG_QUALITY, 80])
+
             if not ok:
                 raise ValueError("Could not encode the analyzed image.")
             with self._lock:
@@ -126,19 +148,26 @@ class PostureDetector:
                     self._ui_warned = True
 
     def _run(self):
+        # Method for running the posture thread
         try:
             while not self._stop.is_set():
+                # Publish the posture data of the last frame
                 self._publish()
                 try:
+                    # Get a new frame
                     frame = self.stream.get_image()
                     if self._stop.is_set():
                         break
+                    # Ignore if the last frame is None
                     if frame is None:
                         continue
+
                     bgr_frame, timestamp_ms = frame
                     rgb_frame = self.stream.bgr_to_rgb(bgr_frame)
                     mp_image = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=rgb_frame)
+
                     self._landmarker.detect_async(mp_image, timestamp_ms)
+
                 except Exception as error:
                     with self._lock:
                         self._error = f"Camera stream / analysis unavailable: {error}"

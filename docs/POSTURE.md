@@ -63,7 +63,7 @@ sans `--dry-run`, ce mode peut déplacer le robot.
 ## Organisation et routes HTTP
 
 - `BridgeClient.camera_frame(after)` : `GET /camera/frame?after=N` par le tunnel,
-  renvoie `(jpeg, sequence)` ou `None` sur HTTP 204, avec un délai HTTP de 4 s.
+  renvoie `(jpeg, frame_nb)` ou `None` sur HTTP 204, avec un délai HTTP de 4 s.
 - `decode_live_stream.py` : `LiveStreamDecoder.get_image()` décode le JPEG et
   fournit `(bgr_frame, timestamp_ms)` ; `bgr_to_rgb()` convertit en RGB. Les
   timestamps de réception sont strictement croissants. Après un 204, le curseur

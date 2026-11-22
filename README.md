@@ -66,6 +66,27 @@ python3 exemples/capteurs.py --dry-run   # lire les capteurs sans bouger
 python3 exemples/eviter_obstacles.py
 ```
 
+## Aperçu de l’interface, sans robot
+
+L’interface NextStep reprend le style du [template HyperLuv de TemplateMo](https://templatemo.com/tm-627-hyperluv-slideshow),
+avec quatre vues : pilotage, capteurs, topics ROS et système. Les polices et les
+styles sont locaux ; aucun accès internet n’est nécessaire.
+
+Depuis la racine du dépôt :
+
+```bash
+python3 -B ui/server.py --preview --port 8080
+```
+
+Ouvrir http://127.0.0.1:8080. Le mode `--preview` ne se connecte ni au bridge ni
+au robot et bloque les commandes côté serveur. Il n’invente pas de mesures : les
+vues restent en attente de données. Ctrl+C arrête le serveur. Si le port est occupé,
+utiliser `--port 8081` et ouvrir l’URL correspondante.
+
+Pour utiliser l’interface avec le robot, conserver le lancement habituel `./start.sh`.
+La navigation se fait par les onglets ou les boutons Préc./Suiv. ; changer de vue
+relâche les commandes de conduite. Le bouton Arrêt reste accessible dans chaque vue.
+
 ## Après une mise à jour du code
 
 **Git synchronise les sources, pas le binaire compilé** : `bridge/dist/` est ignoré

@@ -1,0 +1,12 @@
+NextStep — adaptation du template HYPRLUV / Hyperluv Slideshow (TM-627).
+Création originale : TemplateMo, https://templatemo.com/tm-627-hyperluv-slideshow
+Source téléchargée le 22 novembre 2026 :
+https://templatemo.com/download/templatemo_627_hyperluv_slideshow
+
+TemplateMo autorise le téléchargement, la modification et l'utilisation de ce
+layout pour des sites commerciaux et non commerciaux. Cette adaptation reprend
+la palette, les polices et le principe de navigation du template. Le contenu et les commandes concernent NextStep.
+
+Polices locales : Anton, Space Grotesk et VT323 (Google Fonts).
+Les licences SIL Open Font License sont conservées dans fonts/*-OFL.txt.
+Aucun chargement de police, script ou feuille de style depuis un CDN.

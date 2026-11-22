@@ -3,101 +3,34 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TurtleBot3 Contrôle</title>
-<style>
-:root {
-  --bg: #f4f5f7; --card: #ffffff; --ink: #1d2330; --muted: #667085; --line: #e3e6ec;
-  --accent: #2f6fde; --accent-ink: #ffffff; --ok: #1f9d55; --warn: #c27c0e; --bad: #d64545;
-  --soft: #eef2f8; --scan: #2f6fde; --near: #d64545; --path: #1f9d55;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #11141a; --card: #1a1f27; --ink: #e6e9ef; --muted: #8f99aa; --line: #2b323e;
-    --accent: #5b8ff0; --accent-ink: #0d1117; --ok: #3cc47c; --warn: #e0a43a; --bad: #ef6b6b;
-    --soft: #222937; --scan: #7aa7ff; --near: #ff7a7a; --path: #3cc47c;
-    color-scheme: dark;
-  }
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 12px 20px;
-  align-items: center; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
-header h1 { font-size: 17px; margin: 0; }
-.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
-  font-weight: 600; background: var(--soft); }
-.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
-.ok .dot, .dot.ok { background: var(--ok); } .warn .dot, .dot.warn { background: var(--warn); }
-.bad .dot, .dot.bad { background: var(--bad); }
-.muted { color: var(--muted); }
-#reason { flex: 1 1 260px; min-width: 0; }
-main { display: grid; gap: 14px; padding: 14px 16px 40px;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); max-width: 1500px; margin: 0 auto; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
-.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
-  margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
-.card h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
-.wide { grid-column: 1 / -1; }
-button { font: inherit; border: 1px solid var(--line); background: var(--soft); color: var(--ink);
-  border-radius: 8px; padding: 7px 12px; cursor: pointer; touch-action: none; user-select: none; }
-button:hover { border-color: var(--accent); }
-button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-button.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
-button:disabled { opacity: .45; cursor: not-allowed; }
-.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.pad { display: grid; grid-template-columns: repeat(3, 64px); gap: 8px; justify-content: center; margin: 6px 0 12px; }
-.pad button { height: 56px; font-size: 20px; padding: 0; }
-.pad button.held { background: var(--accent); color: var(--accent-ink); }
-#stop { font-size: 13px; font-weight: 700; }
-label.slider { display: grid; grid-template-columns: 110px 1fr 70px; gap: 8px; align-items: center; margin: 6px 0; }
-input[type=range] { width: 100%; accent-color: var(--accent); }
-table { width: 100%; border-collapse: collapse; }
-td { padding: 3px 0; border-bottom: 1px dashed var(--line); vertical-align: top; }
-td:first-child { color: var(--muted); padding-right: 10px; white-space: nowrap; }
-td:last-child { text-align: right; font-variant-numeric: tabular-nums; word-break: break-all; }
-.sub { font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; display: flex; gap: 8px; align-items: center; }
-.sub .age { margin-left: auto; font-weight: 400; }
-canvas { width: 100%; display: block; background: var(--soft); border-radius: 10px; }
-canvas[hidden] { display: none; }
-pre { background: var(--soft); border-radius: 8px; padding: 10px; overflow: auto; max-height: 360px;
-  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; }
-.note { font-size: 12px; color: var(--muted); margin-top: 8px; }
-#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px);
-  background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 10px; opacity: 0;
-  transition: opacity .2s; pointer-events: none; z-index: 5; }
-#toast.show { opacity: .95; }
-.bar { height: 8px; background: var(--soft); border-radius: 99px; overflow: hidden; margin-top: 4px; }
-.bar > div { height: 100%; background: var(--ok); width: 0; transition: width .3s; }
-.topic { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; padding: 4px 0; border-bottom: 1px dashed var(--line); }
-.topics { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); column-gap: 24px; }
-.topic code { font-size: 12px; word-break: break-all; margin-right: 6px; } .topic .muted { font-size: 12px; }
-.topic button { padding: 3px 10px; font-size: 12px; }
-kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; }
-select { font: inherit; background: var(--soft); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
-.camview { position: relative; aspect-ratio: 16 / 9; max-height: 72vh; margin-inline: auto; background: var(--soft); border-radius: 10px; overflow: hidden; }
-.camview canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: transparent; }
-#camOverlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  text-align: center; padding: 16px; color: var(--muted); }
-#camOverlay.dim { background: color-mix(in srgb, var(--card) 72%, transparent); color: var(--ink); font-weight: 600; }
-#camOverlay[hidden] { display: none; }
-#camError { color: var(--bad); }
-@media (min-width: 760px) { .cam { grid-column: span 2; } }
-@media (max-width: 420px) { main { padding: 12px 16px 40px; grid-template-columns: 1fr; } label.slider { grid-template-columns: 90px 1fr 60px; } }
-</style>
+<title>NextStep — Robot Control</title>
+<meta name="theme-color" content="#FF5826">
+<!-- Adaptation du template HYPRLUV TM-627 de TemplateMo. Voir assets/NOTICE.txt. -->
+<link rel="stylesheet" href="/assets/controls.css">
+<link rel="stylesheet" href="/assets/hyperluv.css">
 </head>
 <body>
-<header>
-  <h1>TurtleBot3</h1>
+<a class="skip-link" href="#workspace">Aller aux commandes</a>
+<header class="topbar">
+  <a class="mark" href="#pilotage" aria-label="NextStep, pilotage">NEXT<b>STEP</b><span class="brand-symbol" aria-hidden="true">✳</span></a>
+  <nav class="deck-nav" aria-label="Vues du bridge">
+    <a href="#pilotage" data-view="pilotage" aria-current="page">Pilotage</a>
+    <a href="#capteurs" data-view="capteurs">Capteurs</a>
+    <a href="#topics-ros" data-view="topics-ros">Topics ROS</a>
+    <a href="#systeme" data-view="systeme">Système</a>
+  </nav>
+  <button id="globalStop" class="danger">■ ARRÊT</button>
+</header>
+<div class="connection-strip" role="status">
   <span id="ready" class="pill"><span class="dot"></span><span>connexion…</span></span>
   <span id="reason" class="muted"></span>
   <span id="batteryHead" class="muted"></span>
   <span id="link" class="pill"><span class="dot"></span><span>bridge</span></span>
-</header>
-
-<main>
-  <section class="card">
-    <h2>Conduite <span class="right muted" id="cmdNow">0.00 m/s · 0.00 rad/s</span></h2>
+</div>
+<div class="workspace-heading"><h1 id="workspaceLabel" tabindex="-1">LE POSTE DE PILOTAGE</h1><span id="workspaceHint">CAMÉRA / CONDUITE</span></div>
+<main id="workspace" tabindex="-1" data-active="pilotage">
+  <section class="card" id="drivePanel" data-panel="pilotage">
+    <h2>Conduite manuelle <span class="right muted" id="cmdNow">0.00 m/s · 0.00 rad/s</span></h2>
     <div class="pad">
       <button data-dir="fl" title="Avant gauche">↖</button>
       <button data-dir="f" title="Avancer (W / ↑)">↑</button>
@@ -121,8 +54,8 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
     <div class="note" id="driveMsg"></div>
   </section>
 
-  <section class="card cam">
-    <h2>Caméra <span class="right row">
+  <section class="card cam" id="cameraPanel" data-panel="pilotage">
+    <h2>Vision en direct <span class="right row">
       <select id="camPreset" aria-label="Compromis fluidité / qualité">
         <option value="eco">Fluide · 320 px</option>
         <option value="std">Équilibré · 480 px</option>
@@ -143,20 +76,20 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
     <div class="note">Les points sont superposés à l'image analysée. L'analyse continue en l'absence de personne.</div>
   </section>
 
-  <section class="card">
+  <section class="card" id="lidarPanel" data-panel="capteurs" hidden>
     <h2>LiDAR <span class="right"><select id="scanRange" aria-label="Portée affichée">
       <option value="0">auto</option><option value="1">1 m</option><option value="2">2 m</option><option value="3.5">3,5 m</option></select></span></h2>
     <canvas id="lidar" height="320"></canvas>
     <div class="note" id="lidarInfo">En attente de /scan…</div>
   </section>
 
-  <section class="card">
+  <section class="card" id="odomPanel" data-panel="capteurs" hidden>
     <h2>Odométrie <span class="right"><button id="clearPath">Effacer le tracé</button></span></h2>
     <canvas id="odomCanvas" height="220"></canvas>
     <table id="odomTable"></table>
   </section>
 
-  <section class="card">
+  <section class="card" id="robotPanel" data-panel="capteurs" hidden>
     <h2>Robot (OpenCR)</h2>
     <div class="sub">Batterie <span class="age" id="batteryAge"></span></div>
     <div class="bar"><div id="batteryBar"></div></div>
@@ -165,7 +98,7 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
     <table id="sensorTable"></table>
   </section>
 
-  <section class="card">
+  <section class="card" id="imuPanel" data-panel="capteurs" hidden>
     <h2>IMU et roues</h2>
     <div class="sub">IMU <span class="age" id="imuAge"></span></div>
     <table id="imuTable"></table>
@@ -175,7 +108,7 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
     <table id="jointTable"></table>
   </section>
 
-  <section class="card">
+  <section class="card" id="actionsPanel" data-panel="systeme" hidden>
     <h2>Actions du robot</h2>
     <div class="sub"><span class="dot" id="svc-motor_power"></span>Moteurs (couple)</div>
     <div class="row"><button data-motor="true" class="primary">Activer</button><button data-motor="false">Couper</button></div>
@@ -190,7 +123,7 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
     <div class="note" id="actionMsg"></div>
   </section>
 
-  <section class="card wide">
+  <section class="card wide" id="topicsPanel" data-panel="topics-ros" hidden>
     <h2>Topics ROS <span class="right"><button id="refreshTopics">Actualiser</button></span></h2>
     <div class="note">Observer un topic (ex. capteur ESP32) affiche ses messages ci-dessous. Types pris en charge :
       std_msgs, std_srvs, geometry_msgs, nav_msgs, sensor_msgs, turtlebot3_msgs.</div>
@@ -201,7 +134,7 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
     <div id="topics" class="muted topics">—</div>
   </section>
 
-  <section class="card wide">
+  <section class="card wide" id="systemPanel" data-panel="systeme" hidden>
     <h2>Système <span class="right muted" id="robotHost"></span></h2>
     <div class="row">
       <button id="checkBtn" class="primary">Diagnostic complet du robot</button>
@@ -212,7 +145,12 @@ select { font: inherit; background: var(--soft); color: var(--ink); border: 1px 
     <pre id="sysOut">Les commandes passent par la connexion SSH ouverte par start.sh.</pre>
   </section>
 </main>
-<div id="toast"></div>
+<footer class="deck-footer">
+  <span class="credits">ALI GÖKKAYA & JASON CONDREA <span>/ NEXTSTEP</span></span>
+  <div class="deck-controls"><button id="previousView" aria-label="Vue précédente">PRÉC.</button><span id="viewCount" aria-live="polite">01 / 04</span><button id="nextView" aria-label="Vue suivante">SUIV.</button></div>
+  <a class="template-credit" href="https://templatemo.com/tm-627-hyperluv-slideshow" target="_blank" rel="noopener noreferrer">DESIGN / HYPERLUV</a>
+</footer>
+<div id="toast" role="status"></div>
 
 <script>
 "use strict";
@@ -220,6 +158,8 @@ const $ = (s) => document.querySelector(s);
 const L = 0.160; // Burger wheel separation (m)
 let limits = { wheel_mps: 0.10, angular_rad_s: 1.25 };
 let isReady = false;
+let previewMode = false;
+let activeView = "pilotage";
 let telemetry = null;
 
 function toast(text) {
@@ -231,6 +171,7 @@ function toast(text) {
 }
 
 async function api(path, body) {
+  if (previewMode) throw new Error("Mode aperçu : robot déconnecté");
   const options = body === undefined ? {} :
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   const response = await fetch(path, options);
@@ -408,6 +349,7 @@ function drawRobot(ctx, x, y, heading, size) {
 }
 
 function drawOdom(o) {
+  if ($("#odomPanel").hidden) return;
   const { ctx, width, height } = prepareCanvas($("#odomCanvas"));
   const points = path.length ? path : [{ x: 0, y: 0 }];
   let minX = Math.min(...points.map((p) => p.x)), maxX = Math.max(...points.map((p) => p.x));
@@ -437,10 +379,11 @@ function drawOdom(o) {
     drawRobot(ctx, sx, sy, -o.yaw_rad, 9);
   }
 }
-$("#clearPath").onclick = () => { path.length = 0; };
+$("#clearPath").onclick = () => { path.length = 0; drawOdom(sensor("odom")); };
 
 /* ---------- LiDAR ---------- */
 function drawLidar() {
+  if ($("#lidarPanel").hidden) return;
   const scan = sensor("scan");
   const { ctx, width, height } = prepareCanvas($("#lidar"));
   const cxs = width / 2, cys = height / 2;
@@ -572,10 +515,10 @@ hold.addEventListener("pointerdown", (e) => {
 $("#wheelsZero").onclick = () => { $("#leftWheel").value = 0; $("#rightWheel").value = 0; updateSliderLabels(); };
 
 document.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (e.target.closest("input, select, textarea, button, a, [contenteditable]")) return;
   if (e.code === "Space") { e.preventDefault(); release(); moving = false; sendStop(); return; }
   const dir = keyMap[e.code];
-  if (!dir) return;
+  if (!dir || activeView !== "pilotage") return;
   e.preventDefault();
   if (e.repeat) return;
   if (!isReady) { toast("Robot not ready : voir la raison en haut"); return; }
@@ -675,7 +618,6 @@ $("#checkBtn").onclick = () => system("Diagnostic en cours (jusqu'à 30 s)", "/l
 $("#logBtn").onclick = () => system("Lecture du journal", "/local/log?lines=300");
 $("#restartBtn").onclick = () => { release(); system("Redémarrage du bridge", "/local/restart", "POST", "Redémarrer le bridge ? Le bringup qu'il a lancé sera relancé (≈30 s)."); };
 $("#stopBridgeBtn").onclick = () => { release(); system("Arrêt du bridge", "/local/stop", "POST", "Arrêter le bridge sur le robot ? L'interface ne pourra plus piloter."); };
-fetch("/local/info").then((r) => r.json()).then((info) => { $("#robotHost").textContent = info.robot; }).catch(() => {});
 
 /* ---------- Caméra ----------
    Le robot compresse l'image en JPEG (encodeur Rust du bridge). L'interface ne
@@ -737,7 +679,7 @@ async function showCameraFrame(src, poses, info, generation) {
   img.src = src;
   await img.decode();
   // A response already in flight must not change a paused or hidden view.
-  if (!cam.on || document.hidden || generation !== cam.generation) return false;
+  if (!cam.on || document.hidden || activeView !== "pilotage" || generation !== cam.generation) return false;
   const canvas = $("#camCanvas"), ctx = canvas.getContext("2d");
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
@@ -754,7 +696,7 @@ async function showCameraFrame(src, poses, info, generation) {
 
 async function cameraLoop() {
   for (;;) {
-    if (!cam.on || document.hidden) { await sleep(300); continue; }
+    if (!cam.on || document.hidden || activeView !== "pilotage") { await sleep(300); continue; }
     const generation = cam.generation;
     try {
       let posture = null;
@@ -762,7 +704,7 @@ async function cameraLoop() {
         const { response, data } = await cameraRequest("/local/posture", (r) => r.json(), 1500);
         if (response.ok) posture = data;
       } catch (_) { /* The raw camera remains available if posture analysis fails. */ }
-      if (!cam.on || document.hidden || generation !== cam.generation) continue;
+      if (!cam.on || document.hidden || activeView !== "pilotage" || generation !== cam.generation) continue;
       if (posture?.active) {
         if (posture.timestamp_ms !== cam.poseTimestamp) {
           const shown = await showCameraFrame(`data:image/jpeg;base64,${posture.image}`, posture.poses,
@@ -779,7 +721,7 @@ async function cameraLoop() {
       const started = performance.now();
       const { response, data } = await cameraRequest(`/api/camera/frame?after=${cam.seq}`,
         (r) => r.ok ? r.blob() : r.json().catch(() => ({})), 6000);
-      if (!cam.on || document.hidden || generation !== cam.generation) continue;
+      if (!cam.on || document.hidden || activeView !== "pilotage" || generation !== cam.generation) continue;
       if (response.status === 204) {
         cam.seq = 0; // Recover if the bridge restarted with a new sequence counter.
         cam.message = "Pas d'image reçue du robot depuis 2,5 s";
@@ -826,7 +768,7 @@ function renderCamera() {
 }
 
 async function pollCamera() {
-  if (!cam.on || document.hidden) return;
+  if (!cam.on || document.hidden || activeView !== "pilotage") return;
   try {
     const s = await api("/api/camera/status");
     const source = s.source ? ` (${s.source.width}×${s.source.height} ${s.source.encoding})` : "";
@@ -892,14 +834,70 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) cam.request?.abort();
 });
 
-/* ---------- Boucles ---------- */
-pollStatus(); pollTelemetry(); refreshTopics();
-setInterval(pollStatus, 500);
-setInterval(pollTelemetry, 200);
-setInterval(refreshTopics, 5000);
-cameraLoop(); pollCamera();
-setInterval(renderCamera, 500);
-setInterval(pollCamera, 2000);
+/* ---------- Navigation HyperLuv et lancement ---------- */
+const views = [
+  { id: "pilotage", label: "LE POSTE DE PILOTAGE", hint: "CAMÉRA / CONDUITE" },
+  { id: "capteurs", label: "LES CAPTEURS EMBARQUÉS", hint: "LiDAR / OPENCR / IMU" },
+  { id: "topics-ros", label: "L’EXPLORATEUR ROS", hint: "TOPICS / MESSAGES" },
+  { id: "systeme", label: "LES COMMANDES SYSTÈME", hint: "SERVICES / DIAGNOSTIC" },
+];
+function selectView() {
+  const view = views.find(v => v.id === location.hash.slice(1)) || views[0];
+  if (activeView !== view.id) {
+    const wasMoving = moving || held.size > 0 || wheelsHeld;
+    release(); moving = false;
+    if (wasMoving) sendStop();
+    cam.generation++; cam.request?.abort();
+  }
+  activeView = view.id;
+  $("#workspace").dataset.active = view.id;
+  document.querySelectorAll("[data-panel]").forEach(el => { el.hidden = el.dataset.panel !== view.id; });
+  document.querySelectorAll(".deck-nav [data-view]").forEach(el => {
+    if (el.dataset.view === view.id) el.setAttribute("aria-current", "page");
+    else el.removeAttribute("aria-current");
+  });
+  $("#workspaceLabel").textContent = view.label;
+  $("#workspaceHint").textContent = view.hint;
+  $("#viewCount").textContent = `0${views.indexOf(view) + 1} / 04`;
+  $("#previousView").disabled = view === views[0];
+  $("#nextView").disabled = view === views[views.length - 1];
+  drawLidar(); renderOdom();
+}
+window.addEventListener("hashchange", () => { selectView(); $("#workspaceLabel").focus({ preventScroll: true }); window.scrollTo(0, 0); });
+$("#previousView").onclick = () => { const i = views.findIndex(v => v.id === activeView); if (i > 0) location.hash = views[i - 1].id; };
+$("#nextView").onclick = () => { const i = views.findIndex(v => v.id === activeView); if (i < views.length - 1) location.hash = views[i + 1].id; };
+$("#globalStop").onclick = () => { release(); moving = false; sendStop(); };
+$("#scanRange").onchange = drawLidar;
+window.addEventListener("resize", () => { drawLidar(); drawOdom(sensor("odom")); });
+async function boot() {
+  try {
+    const info = await fetch("/local/info").then(r => r.json());
+    previewMode = info.preview === true;
+    $("#robotHost").textContent = previewMode ? "APERÇU LOCAL" : info.robot;
+  } catch (_) { /* Le bridge peut être momentanément indisponible. */ }
+  selectView();
+  renderBattery(); renderSensors(); renderImu();
+  if (previewMode) {
+    setPill("#ready", "warn", "APERÇU LOCAL");
+    setPill("#link", "", "ROBOT DÉCONNECTÉ");
+    $("#reason").textContent = "Explorez l’interface · aucune connexion au robot";
+    $("#camOverlay").textContent = "CAMÉRA EN ATTENTE";
+    $("#camStats").textContent = "Le flux vidéo apparaîtra à la connexion du robot.";
+    $("#topics").textContent = "Les topics seront disponibles à la connexion du bridge.";
+    $("#sysOut").textContent = "Aperçu local. Pour connecter le robot, lancez ./start.sh depuis la racine du projet.";
+    $("#driveMsg").textContent = "Commandes désactivées en aperçu.";
+    document.querySelectorAll(".pad button, #globalStop, #wheelsHold, [data-motor], [data-sound], #reset, #camPreset, #camRotate, #checkBtn, #logBtn, #restartBtn, #stopBridgeBtn, #watchBtn, #refreshTopics").forEach(el => { el.disabled = true; el.title = "Disponible à la connexion du robot"; });
+    return;
+  }
+  pollStatus(); pollTelemetry(); refreshTopics();
+  setInterval(pollStatus, 500);
+  setInterval(pollTelemetry, 200);
+  setInterval(refreshTopics, 5000);
+  cameraLoop(); pollCamera();
+  setInterval(renderCamera, 500);
+  setInterval(pollCamera, 2000);
+}
+boot();
 </script>
 </body>
 </html>

@@ -43,7 +43,11 @@
 - **`client/exemples/`** et **`client/demo.py`** : exemples de lecture de capteurs
   et de mouvements ; certains commandent réellement les moteurs.
 - **`ui/`** : serveur Python local et interface HTML/JavaScript sans CDN,
-  utilisables sans accès internet.
+  utilisables sans accès internet. Habillage HyperLuv (TemplateMo), polices et
+  styles locaux dans `ui/assets/`, quatre vues (pilotage, capteurs, topics ROS,
+  système). `python3 -B ui/server.py --preview --port 8080` permet un aperçu
+  sans accès au robot ; ce mode bloque les commandes côté serveur. Les changements
+  de vue relâchent la conduite ; les raccourcis de déplacement sont limités au pilotage.
 - **`slides/dist/`** : présentation web compilée avec animations 3D. Conserver
   ces fichiers intacts sauf demande portant sur les slides ; les sources de
   développement de la présentation ne sont pas fournies.

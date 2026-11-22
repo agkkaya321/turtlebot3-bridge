@@ -10,6 +10,7 @@ Bibliothèque standard uniquement : fonctionne sans internet.
 import argparse
 import http.client
 import json
+import mimetypes
 import queue
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,6 +29,8 @@ POSTURE = PostureStore()
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--preview", action="store_true",
+                        help="Aperçu de l'interface sans accès au bridge ni au robot")
     parser.add_argument("--bridge", default="http://127.0.0.1:8000")
     parser.add_argument("--robot", default="ubuntu@192.168.1.109")
     parser.add_argument("--ssh-port", default="22")
@@ -137,6 +140,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlparse(self.path)
+        if url.path.startswith("/assets/"):
+            asset = (HERE / url.path.lstrip("/")).resolve()
+            if not asset.is_relative_to(HERE / "assets") or not asset.is_file():
+                return self.send(404, {"error": "Not found"})
+            return self.send(200, asset.read_bytes(),
+                             mimetypes.guess_type(asset.name)[0] or "application/octet-stream")
+        if url.path == "/local/info":
+            return self.send(200, {"robot": ARGS.robot, "bridge": ARGS.bridge,
+                                   "preview": ARGS.preview})
+        if ARGS.preview and (url.path.startswith("/api/") or
+                             url.path in ("/local/log", "/local/check")):
+            return self.send(503, {"error": "Mode aperçu : robot déconnecté", "preview": True})
         if url.path == "/local/posture":
             return self.send(200, POSTURE.snapshot())
         if url.path == "/api/camera/frame":
@@ -145,8 +160,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
         if url.path.startswith("/api/"):
             return self.proxy("GET")
-        if url.path == "/local/info":
-            return self.send(200, {"robot": ARGS.robot, "bridge": ARGS.bridge})
         if url.path == "/local/log":
             lines = parse_qs(url.query).get("lines", ["200"])[0]
             lines = str(max(10, min(2000, int(lines)))) if lines.isdigit() else "200"
@@ -159,6 +172,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
+        if ARGS.preview:
+            return self.send(403, {"error": "Commandes désactivées en mode aperçu", "preview": True})
         if url.path == "/local/posture":
             try:
                 POSTURE.update(json.loads(self.body(max_size=750_000)))
@@ -183,7 +198,8 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", ARGS.port), Handler)
     server.daemon_threads = True
-    print(f"UI: http://127.0.0.1:{ARGS.port}  (bridge {ARGS.bridge})", flush=True)
+    mode = "aperçu local, sans robot" if ARGS.preview else f"bridge {ARGS.bridge}"
+    print(f"UI: http://127.0.0.1:{server.server_port}  ({mode})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

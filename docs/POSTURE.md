@@ -21,14 +21,33 @@ Le modèle et `.venv/` sont ignorés par Git. Préparer les deux avant de rejoin
 le réseau isolé du robot. Aucun téléchargement automatique n'a lieu au lancement.
 Un autre modèle peut être indiqué par `--pose-model CHEMIN` ou `POSE_MODEL`.
 
-## Lancer l'analyse
+## Lancer les deux tests
 
-Après avoir ouvert le tunnel et l'interface avec `./start.sh`, dans un second terminal :
+Depuis la racine du dépôt, ouvrir le tunnel et l'interface avec `./start.sh`.
+Dans un second terminal, toujours depuis la racine, lancer un seul test à la fois.
+
+### Suivi LiDAR — `user_follow_test()`
 
 ```bash
-.venv/bin/python client/next_step/main.py --dry-run \
+python3 -B client/next_step/main.py --state user_follow \
+  --url http://127.0.0.1:8000
+```
+
+Cette commande appelle `Main.user_follow_test()` et peut déplacer le robot.
+Ajouter `--dry-run` pour lire le LiDAR et calculer les consignes sans commander
+les moteurs. Arrêter le test avec Ctrl+C avant de lancer l'autre.
+
+### Caméra et MediaPipe — `camera_test()`
+
+Après la préparation de l'environnement et du modèle décrite ci-dessus :
+
+```bash
+.venv/bin/python -B client/next_step/main.py --state posture_checking --dry-run \
   --url http://127.0.0.1:8000 --ui-url http://127.0.0.1:8080
 ```
+
+Cette commande appelle `Main.camera_test()` et affiche l'analyse dans la carte
+**Caméra** de l'interface. Arrêter le test avec Ctrl+C.
 
 Utiliser les deux ports affichés par `start.sh` s'ils diffèrent. Relancer le serveur
 de l'interface s'il était déjà ouvert avant la mise à jour. Aucune recompilation

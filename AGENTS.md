@@ -60,6 +60,9 @@
   du binaire ou de tests logiciels réussis.
 - `client/next_step/main.py` conserve la FSM dans `self.fsm` et appelle sa
   méthode `loop()` à chaque cycle de `Robot` (10 Hz par défaut).
+  `Main.user_follow_test()` lance le suivi LiDAR ; `Main.camera_test()` lance
+  la caméra et MediaPipe via `posture_checking`. L'option `--state` utilise
+  ces méthodes, qui démarrent la boucle et conservent la gestion d'arrêt.
 - Les états présents sont `initial`, `posture_checking`, `user_follow`,
   `laser_aiming_left` et `laser_aiming_right`. `user_follow` remplace
   `moving_backward` (identifiant 1) et commande désormais les déplacements.

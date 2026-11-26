@@ -24,6 +24,16 @@ class Main(Robot):
     def loop(self):
         self.fsm.loop()
 
+    def user_follow_test(self):
+        """Lance le suivi LiDAR ; les moteurs sont actifs sauf en dry_run."""
+        self.initial_state = 1
+        self.run()
+
+    def camera_test(self):
+        """Lance la caméra et MediaPipe via l'état posture_checking."""
+        self.initial_state = 2
+        self.run()
+
     def run(self):
         try:
             super().run()
@@ -42,8 +52,12 @@ class Main(Robot):
         parser.add_argument("--hz", type=float, default=10)
         parser.add_argument("--dry-run", action="store_true", help="Inhiber les commandes moteurs")
         args = parser.parse_args()
-        cls(url=args.url, hz=args.hz, dry_run=args.dry_run, ui_url=args.ui_url,
-            pose_model=args.pose_model, initial_state=2 if args.state == "posture_checking" else 1).run()
+        robot = cls(url=args.url, hz=args.hz, dry_run=args.dry_run, ui_url=args.ui_url,
+                    pose_model=args.pose_model)
+        if args.state == "user_follow":
+            robot.user_follow_test()
+        else:
+            robot.camera_test()
 
 
 if __name__ == "__main__":

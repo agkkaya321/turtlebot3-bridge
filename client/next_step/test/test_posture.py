@@ -152,11 +152,11 @@ class PostureStateTests(unittest.TestCase):
             self.assertEqual(robot.command, (0, 0))
             state.loop()
             self.assertFalse(robot._finished)
-            self.assertTrue(any("La personne n'est pas sur l'image" in str(c) for c in output.call_args_list))
+            self.assertTrue(any("The user must be on the image." in str(c) for c in output.call_args_list))
             for _ in range(600):
                 state.loop()
             self.assertFalse(robot._finished)
-            output.assert_called_once_with("La personne n'est pas sur l'image.", flush=True)
+            output.assert_called_once_with("The user must be on the image.", flush=True)
             detector.status.return_value.update(present=True)
             state.loop()
             detector.status.return_value.update(present=False)

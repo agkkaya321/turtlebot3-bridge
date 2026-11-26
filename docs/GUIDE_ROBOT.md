@@ -294,13 +294,86 @@ class AllerRetour(Robot):
 
 Les attributs de ton choix (`self.cotes = 0` dans `setup()`) servent de mémoire entre deux tours.
 
+## Mesures et angles NextStep
+
+`client/next_step/measurements.py` centralise les dimensions configurables :
+longueurs en **mètres**, angles calculés en **radians**. Les mesures relevées
+en centimètres restent consultables dans `docs/MESURES_STATIQUES.csv` ; ce CSV
+est documentaire et n'est pas chargé par le programme.
+
+| Attribut de `Measurements` | Valeur par défaut | Usage |
+|---|---|---|
+| `robot_height_m` | 0.214 | Hauteur du robot seul, référence |
+| `robot_with_stage_height_m` | 0.33 | Hauteur avec étage, référence |
+| `laser_height_m` | 0.33 | Hauteur du laser au-dessus du sol |
+| `person_height_m` | 1.80 | Taille de référence, sans calcul clinique |
+| `person_distance_m` | 2.275 | Consigne du suivi et distance nominale pour le laser |
+| `foot_spacing_m` | `(0.25, 0.50)` | Écartement latéral total des pieds, min/max |
+| `step_length_m` | `(0.20, 0.45)` | Longueur du prochain pas, min/max |
+
+Exemple depuis `client/`, sans démarrer le robot :
+
+```python
+from dataclasses import replace
+from next_step.main import Main
+from next_step.measurements import Measurements, cm_to_m, mm_to_m
+
+mesures = Measurements(
+    laser_height_m=cm_to_m(33),
+    person_distance_m=cm_to_m(227.5),
+    foot_spacing_m=(cm_to_m(25), cm_to_m(50)),
+    step_length_m=(cm_to_m(20), cm_to_m(45)),
+)
+robot = Main(measurements=mesures, dry_run=True)
+
+# Angles du faisceau pour un appui précis du pied gauche anatomique.
+angles = mesures.laser_angles("left", step_length_m=0.30, foot_spacing_m=0.40)
+print(angles.pitch_rad, angles.yaw_rad)
+print(angles.to_degrees())  # (vertical, horizontal)
+print(mesures.laser_angle_limits("left").to_degrees())
+print(mesures.laser_angle_limits("right").to_degrees())
+
+# Remplacement validé de la configuration : visible par tous les états.
+robot.measurements = replace(mesures, laser_height_m=mm_to_m(350))
+```
+
+`cm_to_m`, `mm_to_m`, `m_to_cm`, `degrees_to_radians` et
+`radians_to_degrees` convertissent les unités. La configuration refuse les
+dimensions non positives ou non finies, les intervalles inversés et un pas
+maximal qui atteindrait ou dépasserait le robot. `laser_angles` refuse aussi
+les appuis hors des plages configurées. Les angles et leurs bornes sont
+recalculés depuis les dimensions : aucune ancienne borne arrondie ne subsiste
+après une modification de la configuration.
+
+Les états laser proposent `angles_for_step(step_length_m, foot_spacing_m)`
+et la propriété `angle_limits`. Ces méthodes calculent uniquement la
+géométrie ; la commande des servomoteurs reste à développer.
+
+Le calcul suppose un sol plat, une personne centrée face au robot immobile et
+un pas vers celui-ci. La cible est à `person_distance_m - step_length_m`, soit
+1.825–2.075 m par défaut. Le laser est assimilé à l'origine de distance du robot,
+sans correction du décalage de montage. Pitch négatif signifie vers le sol ;
+yaw positif signifie vers la gauche du robot. Le pied gauche de la personne
+apparaît donc à droite du robot (yaw négatif). Les plages obtenues sont environ
+−10.23° à −8.97° en vertical pour chaque pied, −7.81° à −3.44° en horizontal
+pour le pied gauche et +3.44° à +7.81° pour le droit. Ces enveloppes ne suffisent
+pas à choisir un appui : calculer les deux angles avec le même pas et le même
+écartement. Le choix du pas reste à développer.
+
+Le suivi utilise toujours la distance de Manhattan au LiDAR ; la géométrie
+laser utilise une distance longitudinale nominale. Leur valeur commune ne
+représente la même distance physique que pour une cible centrée et des origines
+alignées. Aucun asservissement du laser aux positions réelles des pieds n'est
+implémenté. Les seuils de sélection des jambes LiDAR restent des heuristiques
+distinctes de la plage d'écartement des futurs appuis.
+
 ## Suivi LiDAR NextStep
 
-`client/next_step/main.py` active l'état `UserFollowState` (identifiant 1,
-nom `user_follow`) et appelle sa méthode `loop()` à chaque cycle. Ce programme
+`client/next_step/main.py --state user_follow` active l'état `UserFollowState`
+(identifiant 1) et appelle sa méthode `loop()` à chaque cycle. Ce programme
 commande désormais les moteurs lorsqu'une cible est détectée.
 
-L'extraction, indépendante du robot, se trouve dans `client/next_step/lidar.py` :
+L'extraction, indépendante du robot, se trouve dans `client/next_step/leg_detection/lidar.py` :
 
 1. Convertir les rayons en coordonnées cartésiennes dans le repère du scan
    (x devant, y à gauche) et garder `x > 0` et `R < 3` mètres. La ROI est un
@@ -346,19 +419,20 @@ Ces paramètres de sélection sont des heuristiques réglables dans `lidar.py` :
 | `TRACK_MAX_JUMP` | 0,50 m | Distance maximale à la dernière position observée |
 | `TRACK_TIMEOUT` | 1 s | Oubli de la cible sans observation acceptée |
 
-Les réglages sont en tête de
+La consigne vient de `robot.measurements`. Les autres réglages sont en tête de
 `client/next_step/finite_state_machine/states/user_follow_state.py` :
 
 | Constante | Valeur | Rôle |
 |---|---|---|
-| `DISTANCE_THRESHOLD` | 1,5 m | Distance de Manhattan souhaitée |
+| `robot.measurements.person_distance_m` | 2,275 m | Distance de Manhattan souhaitée |
 | `REACTIVITY_CONSTANT` | 0,5 | Gain proportionnel |
 | `SLIDING_WINDOW_SIZE` | 100 | Nombre maximal de mesures conservées |
 | `SCAN_MAX_AGE` | 0,5 s | Âge maximal accepté du scan |
 
 À chaque cycle valide, l'état ajoute `abs(x_target) + abs(y_target)` dans son
 propre buffer. La moyenne utilise les mesures disponibles au démarrage, puis
-les 100 dernières valeurs. La vitesse est `0.5 * (moyenne - 1.5)`, bornée par
+les 100 dernières valeurs. La vitesse est
+`0.5 * (moyenne - robot.measurements.person_distance_m)`, bornée par
 `robot.max_wheel_speed()` : `forward(v)` si positive, `backward(-v)` si négative,
 `stop()` si nulle. Aucune rotation n'est commandée. `Robot.run()` transmet la
 consigne au bridge après la boucle ; aucun accès ROS direct n'est nécessaire.
@@ -368,7 +442,7 @@ et vide le buffer de distance. L'entrée et la sortie de l'état font de même
 et effacent aussi la mémoire de position. Les mesures
 sont ajoutées par cycle, même si le scan n'a pas changé entre deux cycles.
 À 10 Hz, la fenêtre représente environ 10 secondes et retarde la réaction aux
-changements de distance : la consigne de 1,5 m n'est pas une garantie de sécurité.
+changements de distance : la consigne de distance n'est pas une garantie de sécurité.
 
 L'extraction est testée sur des scans synthétiques ; la sélection est aussi
 vérifiée sur des centres retranscrits des journaux utilisateur, sans disposer

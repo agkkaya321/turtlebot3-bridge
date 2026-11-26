@@ -1,7 +1,15 @@
+from ..measurements import DEFAULT_MEASUREMENTS
+
+
 class State:
     def __init__(self, name, robot=None):
         self.name = name
         self.robot = robot
+
+    @property
+    def measurements(self):
+        """Shared configuration; states also see replacement configurations."""
+        return getattr(self.robot, "measurements", DEFAULT_MEASUREMENTS)
 
     def enter(self):
         if getattr(self.robot, "verbose", True):

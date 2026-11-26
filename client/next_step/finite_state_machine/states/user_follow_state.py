@@ -5,7 +5,6 @@ from time import perf_counter
 from ...leg_detection.lidar import TargetTracker, polar_to_cartesian
 from ..state import State
 
-DISTANCE_THRESHOLD = 1.5  # Meters.
 SLIDING_WINDOW_SIZE = 100
 REACTIVITY_CONSTANT = 0.5
 SCAN_MAX_AGE = 0.5  # Seconds.
@@ -125,4 +124,4 @@ class UserFollowState(State):
 
         r_smooth = self.compute_sliding_window(self.distance_measurements)
 
-        return REACTIVITY_CONSTANT * (r_smooth - DISTANCE_THRESHOLD)
+        return REACTIVITY_CONSTANT * (r_smooth - self.measurements.person_distance_m)

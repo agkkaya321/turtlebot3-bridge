@@ -7,6 +7,7 @@ from unittest.mock import patch
 from next_step.leg_detection.lidar import analyze_scan, cluster_width, extract_clusters, extract_target
 from next_step.finite_state_machine.states.user_follow_state import UserFollowState
 from next_step.main import Main
+from next_step.measurements import Measurements
 
 
 def scan_at(x, bands=((-0.06, 0.06),), angle_min=-math.pi):
@@ -161,11 +162,22 @@ class ExtractionTests(unittest.TestCase):
 class FollowingTests(unittest.TestCase):
     def setUp(self):
         # Real Robot.forward/backward/stop methods, without calling run().
-        self.robot = Main()
+        self.robot = Main(measurements=Measurements(person_distance_m=1.5))
         self.state = UserFollowState(self.robot, debug=False)
 
     def set_scan(self, scan, age_ms=0):
         self.robot._telemetry = {"sensors": {"scan": {"data": scan, "age_ms": age_ms}}}
+
+    def test_default_distance_controls_real_commands_at_2275_m(self):
+        self.robot = Main()
+        self.state = UserFollowState(self.robot, debug=False)
+        for distance, expected in ((2.175, -0.05), (2.275, 0), (2.375, 0.05)):
+            with self.subTest(distance=distance):
+                self.state._reset()
+                self.set_scan(scan_at(distance))
+                self.state.loop()
+                self.assertAlmostEqual(self.robot.command[0], expected)
+                self.assertEqual(self.robot.command[1], 0)
 
     def test_signed_speed_and_saturation_through_real_robot_commands(self):
         for distance, expected in ((2, 0.1), (1.6, 0.05), (1.4, -0.05), (0.5, -0.1)):

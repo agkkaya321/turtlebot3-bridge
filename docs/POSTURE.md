@@ -79,6 +79,44 @@ ancienne posture à l'écran si le processus disparaît.
 Le suivi LiDAR reste disponible explicitement avec `--state user_follow` ;
 sans `--dry-run`, ce mode peut déplacer le robot.
 
+## Version exécutable macOS dans `build/`
+
+Depuis la racine du dépôt, après préparation de `.venv` et du modèle :
+
+```bash
+.venv/bin/python -m pip install 'pyinstaller==6.22.3'
+./build-client.sh
+```
+
+Le script utilise [PyInstaller](https://pyinstaller.org/en/stable/usage.html)
+pour créer `build/nextstep/nextstep` avec Python, OpenCV, MediaPipe et le modèle
+de posture inclus. Conserver **tout le dossier `build/nextstep/`**, notamment
+`_internal/`, lors d'une copie. L'exécutable est destiné à macOS et à
+l'architecture du Mac de compilation (Apple Silicon pour la version actuelle).
+Il ne s'exécute pas sur le Raspberry Pi et ne nécessite pas de `.venv` au lancement.
+Les fichiers de compilation et les caches restent dans `build/`, ignoré par Git.
+
+Après `./start.sh`, lancer l'un des modes dans un second terminal :
+
+```bash
+# user_follow_test() : suivi LiDAR avec moteurs actifs
+./build/nextstep/nextstep --state user_follow --url http://127.0.0.1:8000
+
+# camera_test() : caméra et MediaPipe, sans commandes moteurs
+./build/nextstep/nextstep --state posture_checking --dry-run \
+  --url http://127.0.0.1:8000 --ui-url http://127.0.0.1:8080
+```
+
+Ajouter `--dry-run` au suivi pour inhiber les moteurs. Adapter les ports à ceux
+affichés par `start.sh`. Ctrl+C arrête le mode choisi ; le bridge et l'interface
+restent ouverts. Le modèle embarqué peut être remplacé avec `--pose-model CHEMIN`.
+Le bridge Rust et le serveur UI restent lancés séparément par `start.sh`.
+
+Version macOS ARM64 vérifiée avec un faux bridge HTTP local : démarrage des
+deux modes en `--dry-run`, analyse MediaPipe d'un JPEG synthétique sans personne,
+publication de l'image analysée et arrêt propre par Ctrl+C. Aucun appel moteur
+pendant ces vérifications ; elles ne valident pas le fonctionnement matériel.
+
 ## Organisation et routes HTTP
 
 - `BridgeClient.camera_frame(after)` : `GET /camera/frame?after=N` par le tunnel,

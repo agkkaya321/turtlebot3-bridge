@@ -5,6 +5,7 @@
 __pycache__/
 *.pyc
 .venv/
+/build/
 client/next_step/posture_analysis/*.task
 .ipynb_checkpoints/
 

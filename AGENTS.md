@@ -2,7 +2,8 @@
 
 ## Projet et source de vérité
 
-- Échanger en français avec l'utilisateur.
+- Communicate with the user in French. Write all code, comments, docstrings,
+  documentation, debug logs, diagnostic messages and error messages in English.
 - Projet **NextStep**, auteurs **Ali Gökkaya et Jason Condrea**.
 - La racine contient `start.sh`, `bridge/`, `client/`, `ui/`, `docs/` et les
   slides locales dans `slides/dist/`.
@@ -40,6 +41,21 @@
   standard Python, sans dépendance externe.
 - **`client/next_step/`** : code métier NextStep et machine à états en cours
   de construction. Placer les nouveaux comportements du projet ici.
+- **`client/next_step/measurements.py`** : configuration `Measurements` partagée
+  via `Main(measurements=...)`, longueurs en mètres et angles en radians.
+  Conversions cm/mm → m et degrés ↔ radians ; calcul des angles et enveloppes
+  laser depuis la hauteur 0,33 m, la distance 2,275 m, les pas 0,20–0,45 m et
+  l'écartement total 0,25–0,50 m. Hypothèses : personne centrée face au robot
+  immobile, sol plat, pas vers le robot et origines de distance assimilées.
+  Les états laser exposent ces calculs sans commande matérielle. La configuration
+  peut être remplacée avec `dataclasses.replace`. Le CSV
+  `docs/MESURES_STATIQUES.csv` reste documentaire, non chargé par le programme.
+- **`build-client.sh`** : empaquetage du client macOS avec PyInstaller dans
+  `build/nextstep/` (Python, OpenCV, MediaPipe et modèle inclus). Conserver le
+  dossier entier pour le lancer ; `build/` est ignoré par Git. Le bridge et
+  l'UI restent lancés séparément avec `start.sh`. Les deux modes de l'exécutable
+  macOS ARM64 ont été vérifiés contre un faux bridge en `--dry-run`, avec une
+  image synthétique pour MediaPipe, sans validation matérielle. Voir `docs/POSTURE.md`.
 - **`client/exemples/`** et **`client/demo.py`** : exemples de lecture de capteurs
   et de mouvements ; certains commandent réellement les moteurs.
 - **`ui/`** : serveur Python local et interface HTML/JavaScript sans CDN,
@@ -76,7 +92,8 @@
   à 3 m depuis le LiDAR (`x > 0`, sans limite latérale supplémentaire).
   La limite radiale est réglée par `ROI_MAX_DISTANCE`. `UserFollowState` applique
   une distance de Manhattan, une moyenne sur 100 cycles (fenêtre partielle au
-  démarrage), un gain de 0,5 et une consigne de distance de 1,5 m. La vitesse
+  démarrage), un gain de 0,5 et une consigne configurable par
+  `robot.measurements.person_distance_m` (2,275 m par défaut). La vitesse
   est bornée par `Robot.max_wheel_speed()`.
 - La sélection LiDAR compare les paires de candidats de largeur 5–20 cm :
   écart de 10–65 cm, différence de profondeur ≤40 cm, écart latéral ≥8 cm.

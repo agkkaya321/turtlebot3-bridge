@@ -1,6 +1,5 @@
 import os
 import sys
-import argparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from next_step.finite_state_machine.fsm import FiniteStateMachine
@@ -47,23 +46,10 @@ class Main(Robot):
             if self.fsm is not None:
                 self.fsm.get_current_state().exit()
 
-    @classmethod
-    def main(cls):
-        parser = argparse.ArgumentParser(description="NextStep: posture analysis or LiDAR following.")
-        parser.add_argument("--url", default="http://127.0.0.1:8000", help="Bridge tunnel URL")
-        parser.add_argument("--ui-url", default="http://127.0.0.1:8080", help="Local UI URL")
-        parser.add_argument("--pose-model", help="Path to the MediaPipe .task model (or POSE_MODEL)")
-        parser.add_argument("--state", choices=("posture_checking", "user_follow"), default="posture_checking")
-        parser.add_argument("--hz", type=float, default=10)
-        parser.add_argument("--dry-run", action="store_true", help="Disable motor commands")
-        args = parser.parse_args()
-        robot = cls(url=args.url, hz=args.hz, dry_run=args.dry_run, ui_url=args.ui_url,
-                    pose_model=args.pose_model)
-        if args.state == "user_follow":
-            robot.user_follow_test()
-        else:
-            robot.camera_test()
-
 
 if __name__ == "__main__":
-    Main.main()
+    robot = Main()
+
+    # Choose one test: comment out the other call.
+    robot.camera_test()
+    # robot.user_follow_test()  # Motors are enabled; use Main(dry_run=True) to disable them.

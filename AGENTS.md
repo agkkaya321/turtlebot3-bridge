@@ -50,12 +50,14 @@
   Les états laser exposent ces calculs sans commande matérielle. La configuration
   peut être remplacée avec `dataclasses.replace`. Le CSV
   `docs/MESURES_STATIQUES.csv` reste documentaire, non chargé par le programme.
-- **`build-client.sh`** : empaquetage du client macOS avec PyInstaller dans
-  `build/nextstep/` (Python, OpenCV, MediaPipe et modèle inclus). Conserver le
-  dossier entier pour le lancer ; `build/` est ignoré par Git. Le bridge et
-  l'UI restent lancés séparément avec `start.sh`. Les deux modes de l'exécutable
-  macOS ARM64 ont été vérifiés contre un faux bridge en `--dry-run`, avec une
-  image synthétique pour MediaPipe, sans validation matérielle. Voir `docs/POSTURE.md`.
+- **`build-client.sh`** bundles the macOS client with PyInstaller into
+  `build/nextstep/` (Python, OpenCV, MediaPipe and the model included). Keep
+  the entire directory to run it; `build/` is ignored by Git. The bridge and
+  UI are still started separately with `start.sh`. The previous macOS ARM64
+  executable was checked in both modes against a fake bridge with movement
+  disabled and a synthetic MediaPipe image, without hardware validation.
+  Those checks predate the argument parser removal; this change has only been
+  verified from Python sources, not in a rebuilt executable. See `docs/POSTURE.md`.
 - **`client/exemples/`** et **`client/demo.py`** : exemples de lecture de capteurs
   et de mouvements ; certains commandent réellement les moteurs.
 - **`ui/`** : serveur Python local et interface HTML/JavaScript sans CDN,
@@ -74,11 +76,16 @@
   rapporte des validations en conteneur et contre un faux robot, mais pas encore
   sur le robot réel. Ne pas déduire une validation matérielle de la présence
   du binaire ou de tests logiciels réussis.
-- `client/next_step/main.py` conserve la FSM dans `self.fsm` et appelle sa
-  méthode `loop()` à chaque cycle de `Robot` (10 Hz par défaut).
-  `Main.user_follow_test()` lance le suivi LiDAR ; `Main.camera_test()` lance
-  la caméra et MediaPipe via `posture_checking`. L'option `--state` utilise
-  ces méthodes, qui démarrent la boucle et conservent la gestion d'arrêt.
+- `client/next_step/main.py` keeps the FSM in `self.fsm` and calls its `loop()`
+  on every `Robot` cycle (10 Hz by default). Run it with
+  `python3 client/next_step/main.py`, without arguments or a parser.
+  At the bottom of the file, keep exactly one call enabled:
+  `robot.camera_test()` (default: camera and MediaPipe via `posture_checking`)
+  or `robot.user_follow_test()` (LiDAR following). Both methods start the loop
+  and preserve shutdown handling. Configure URL, UI URL, model, frequency,
+  measurements and dry run through `Main(...)` in that same block.
+  `build-client.sh` packages this selection without running the executable;
+  rebuild the macOS client after changing the selected test or configuration.
 - Les états présents sont `initial`, `posture_checking`, `user_follow`,
   `laser_aiming_left` et `laser_aiming_right`. `user_follow` remplace
   `moving_backward` (identifiant 1) et commande désormais les déplacements.
@@ -105,7 +112,8 @@
   Absence de cible, ambiguïté ou scan vieux de plus de 0,5 s : arrêt et buffer
   de distance vidé, même si la position précédente est encore mémorisée.
   L'entrée et la sortie de l'état remettent consigne, mémoire et buffer à zéro.
-  `--state user_follow` active cet état et peut déplacer le robot sans `--dry-run`.
+  `robot.user_follow_test()` activates this state and can move the robot unless
+  `Main(dry_run=True)` is used.
   `Main.setup()` active désormais `posture_checking` par défaut, à vitesse nulle.
   Un premier lancement du suivi sur le robot est rapporté par l'utilisateur,
   avec des tours dépassant 100 ms ; la détection des jambes et le suivi physique
@@ -138,7 +146,7 @@
   affiche ce flux avec les points, sans deuxième vue ni acquisition brute UI
   simultanée ; elle revient au flux brut si l'analyse est inactive. Pause et
   Capture s'appliquent à cette vue unique. URL UI configurable
-  par `--ui-url`. OpenCV/MediaPipe et le modèle `.task` sont requis uniquement
+  via `Main(ui_url=...)`. OpenCV/MediaPipe et le modèle `.task` sont requis uniquement
   pour l'analyse de posture ; voir `docs/POSTURE.md`. Pas de validation matérielle
   de cette analyse ni de score clinique implémenté.
 - Capteurs portés, commande du laser, algorithmes de posture et de choix du pas,
@@ -232,8 +240,9 @@ python3 -B -m unittest discover -s bridge/tools -p 'test_*.py'
   une vitesse nulle. Cela ne constitue pas une validation de l'arrêt physique.
 - Le bridge ne freine pas automatiquement devant un obstacle : le comportement
   utilisateur doit le gérer. L'état `ready` ne garantit pas l'absence d'obstacle.
-- Le mode `--dry-run` du client inhibe les mouvements ; il ne remplace pas les
-  tests unitaires sans réseau et ne signifie pas que tout accès au robot est simulé.
+- NextStep uses `Main(dry_run=True)` to inhibit movement; other client scripts
+  may expose `--dry-run`. This does not replace offline unit tests or mean
+  that all robot access is simulated.
 - Avec `ROS_AUTOSTART=true`, le bridge peut lancer et relancer le bringup ROS.
   Préserver les pilotes déjà lancés par un autre processus.
 

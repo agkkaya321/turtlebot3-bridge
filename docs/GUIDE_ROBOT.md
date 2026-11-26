@@ -369,9 +369,11 @@ distinctes de la plage d'écartement des futurs appuis.
 
 ## Suivi LiDAR NextStep
 
-`client/next_step/main.py --state user_follow` active l'état `UserFollowState`
-(identifiant 1) et appelle sa méthode `loop()` à chaque cycle. Ce programme
-commande désormais les moteurs lorsqu'une cible est détectée.
+At the bottom of `client/next_step/main.py`, comment out `robot.camera_test()`
+and enable `robot.user_follow_test()`. Run `python3 client/next_step/main.py`
+without arguments. This activates `UserFollowState` (ID 1) and calls its
+`loop()` every cycle. The test commands the motors when a target is detected;
+use `Main(dry_run=True)` to disable motor commands.
 
 L'extraction, indépendante du robot, se trouve dans `client/next_step/leg_detection/lidar.py` :
 
@@ -454,8 +456,9 @@ du LiDAR doit être aligné avec celui du robot pour interpréter x comme l'avan
 
 ### Diagnostic du suivi
 
-Le journal du suivi est activé par défaut (`DEBUG_FOLLOW = True` dans
-`user_follow_state.py`). La commande habituelle, depuis `client/`, suffit :
+Following logs are enabled by default (`DEBUG = True` in `user_follow_state.py`).
+After selecting `robot.user_follow_test()` at the bottom of `main.py`, run from
+`client/`:
 
 ```bash
 python3 next_step/main.py
@@ -464,15 +467,16 @@ python3 next_step/main.py
 Toutes les secondes (`DEBUG_INTERVAL`), une seule ligne résume le suivi :
 
 ```text
-Jambes détectées — distance : 1.20 m — ajustement : recule.
-Jambes détectées — distance : 1.50 m — position maintenue.
-Jambes non détectées — arrêt.
+Legs detected — distance: 1.20 m — adjusting: backward.
+Legs detected — distance: 2.27 m — holding position.
+Legs not detected — stopped.
 ```
 
 La distance affichée est la distance euclidienne instantanée entre le LiDAR et
 la cible sélectionnée. La commande continue d'utiliser la distance de Manhattan
 lissée ; l'ajustement affiché correspond à la consigne, pas à une mesure de
-mouvement effectif. Le mode `--dry-run` ajoute `[simulation, sans mouvement]`.
+mouvement effectif.
+`Main(dry_run=True)` appends `[dry run, no movement]` to the tracking summary.
 
 Les détails des clusters, la cause d'une perte de cible, les angles et les temps
 restent disponibles dans `state.diagnostics`, sans affichage supplémentaire.

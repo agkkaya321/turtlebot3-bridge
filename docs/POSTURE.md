@@ -1,163 +1,180 @@
-# Analyse de posture NextStep
+# NextStep posture analysis
 
-L'analyse s'exécute sur le Mac. Le Raspberry Pi fournit les JPEG via le bridge
-existant ; aucune installation de MediaPipe sur le robot n'est nécessaire.
+Analysis runs on the Mac. The Raspberry Pi supplies JPEG frames through the
+existing bridge; MediaPipe does not need to be installed on the robot.
 
-## Préparer le Mac avec internet
+## Prepare the Mac with internet access
 
-Dans un environnement virtuel Python compatible avec MediaPipe :
+Use a Python virtual environment compatible with MediaPipe:
 
 ```bash
-# Seulement si aucun environnement virtuel n'existe encore :
+# Only if no virtual environment exists yet:
 python3 -m venv .venv
 .venv/bin/python -m pip install -r client/next_step/posture_analysis/requirements.txt
 curl -fL -o client/next_step/posture_analysis/pose_landmarker_lite.task \
   https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
 ```
 
-`opencv-contrib-python` fournit `cv2` et est aussi utilisé par MediaPipe : ne pas
-installer en parallèle une autre distribution OpenCV dans cet environnement.
-Le modèle et `.venv/` sont ignorés par Git. Préparer les deux avant de rejoindre
-le réseau isolé du robot. Aucun téléchargement automatique n'a lieu au lancement.
-Un autre modèle peut être indiqué par `--pose-model CHEMIN` ou `POSE_MODEL`.
+`opencv-contrib-python` provides `cv2` and is also used by MediaPipe. Do not
+install another OpenCV distribution in the same environment. The model and
+`.venv/` are ignored by Git. Prepare both before joining the isolated robot
+network; the client does not download them automatically at startup.
+Set `Main(pose_model="PATH")` or `POSE_MODEL` to use another model.
 
-## Lancer les deux tests
+## Run a test without command-line arguments
 
-Depuis la racine du dépôt, ouvrir le tunnel et l'interface avec `./start.sh`.
-Dans un second terminal, toujours depuis la racine, lancer un seul test à la fois.
-
-### Suivi LiDAR — `user_follow_test()`
+From the repository root, start the tunnel and UI with `./start.sh`.
+In a second terminal, activate the prepared environment and run:
 
 ```bash
-python3 -B client/next_step/main.py --state user_follow \
-  --url http://127.0.0.1:8000
+source .venv/bin/activate
+python3 client/next_step/main.py
 ```
 
-Cette commande appelle `Main.user_follow_test()` et peut déplacer le robot.
-Ajouter `--dry-run` pour lire le LiDAR et calculer les consignes sans commander
-les moteurs. Arrêter le test avec Ctrl+C avant de lancer l'autre.
+With the environment activated, `python3` uses its installed dependencies.
+The script has no argument parser. Select the test at the bottom of
+`client/next_step/main.py`, leaving exactly one call enabled:
 
-### Caméra et MediaPipe — `camera_test()`
+```python
+if __name__ == "__main__":
+    robot = Main()
 
-Après la préparation de l'environnement et du modèle décrite ci-dessus :
-
-```bash
-.venv/bin/python -B client/next_step/main.py --state posture_checking --dry-run \
-  --url http://127.0.0.1:8000 --ui-url http://127.0.0.1:8080
+    # Choose one test: comment out the other call.
+    robot.camera_test()
+    # robot.user_follow_test()  # Motors are enabled; use Main(dry_run=True) to disable them.
 ```
 
-Cette commande appelle `Main.camera_test()` et affiche l'analyse dans la carte
-**Caméra** de l'interface. Arrêter le test avec Ctrl+C.
+- `camera_test()` starts the camera and MediaPipe through `posture_checking`
+  (state 2). It holds a zero motion command and displays the analysis in the
+  UI's main camera view. This is the default selection.
+- `user_follow_test()` starts LiDAR following (state 1) and can move the robot.
+  Change the constructor to `Main(dry_run=True)` to calculate commands without
+  sending movement commands. This still accesses the real bridge and sensors.
 
-Utiliser les deux ports affichés par `start.sh` s'ils diffèrent. Relancer le serveur
-de l'interface s'il était déjà ouvert avant la mise à jour. Aucune recompilation
-Rust n'est nécessaire pour cette modification.
+Stop the current test with Ctrl+C before switching to the other one. Both
+methods run the FSM loop and preserve shutdown handling.
 
-NextStep commence désormais dans `posture_checking` (état 2), avec une consigne
-de mouvement nulle. `--dry-run` inhibe les commandes moteurs, mais utilise le
-vrai flux caméra. La carte **Caméra** affiche les points visibles et les connexions
-du squelette directement sur sa vue principale, avec l'image exacte analysée.
-Lorsque MediaPipe est actif, l'interface utilise ce flux local et ne demande pas
-un deuxième flux brut au robot. Si l'analyse devient inactive ou expire, elle
-revient automatiquement à la caméra brute. **Pause** fige la vue et suspend ses
-requêtes d'images ; le détecteur Python continue son travail. **Capture** enregistre
-l'image affichée avec ses points. Le cadrage suit la rotation et les dimensions
-de l'image, en portrait comme en paysage.
+If the ports printed by `start.sh` differ from the defaults, edit the
+constructor in the same block:
 
-L'analyse continue sans limite de temps lorsqu'aucune personne n'est détectée.
-La console affiche « La personne n'est pas sur l'image » uniquement au changement
-de situation, sans compte à rebours. Ctrl+C ou une sortie d'état libèrent le
-détecteur. **L'interface, le bridge et le Raspberry Pi restent allumés.**
+```python
+robot = Main(
+    url="http://127.0.0.1:8000",
+    ui_url="http://127.0.0.1:8080",
+    hz=10,
+    dry_run=True,
+    # pose_model="/path/to/model.task",
+)
+```
 
-Les logs techniques OpenCV/MediaPipe (informations, avertissements et debug)
-sont filtrés, y compris les messages natifs C++. Les erreurs restent visibles.
-Une caméra coupée, un flux invalide ou l'absence de réponse de MediaPipe sont
-signalés sans arrêt automatique lié à l'absence de personne.
-Les images affichées expirent après 3 secondes pour éviter de conserver une
-ancienne posture à l'écran si le processus disparaît.
+Dimensions can also be supplied through `Main(measurements=...)`; see
+[GUIDE_ROBOT.md](GUIDE_ROBOT.md). No Rust rebuild is needed for client changes.
 
-Le suivi LiDAR reste disponible explicitement avec `--state user_follow` ;
-sans `--dry-run`, ce mode peut déplacer le robot.
+## Camera display and lifecycle
 
-## Version exécutable macOS dans `build/`
+The main camera view shows visible landmarks and skeleton connections on the
+exact analyzed frame. While MediaPipe is active, the UI uses this local stream
+instead of requesting a second raw stream from the robot. If analysis becomes
+inactive or expires, it returns to the raw camera feed.
 
-Depuis la racine du dépôt, après préparation de `.venv` et du modèle :
+**Pause** freezes the view and suspends its image requests; the Python detector
+continues processing. **Capture** saves the displayed image with its landmarks.
+The display follows the frame's rotation and dimensions in portrait or landscape.
+Restart the UI server if it was already running before an update.
+
+Analysis continues indefinitely when no person is detected. The console prints
+"The user must be on the image." only when the situation changes, without a
+countdown. Ctrl+C or a state exit releases the detector.
+**The UI, bridge and Raspberry Pi remain running.**
+
+OpenCV/MediaPipe technical logs (information, warnings and debug), including
+native C++ output, are filtered. Errors remain visible. A disconnected camera,
+an invalid stream or a missing MediaPipe response is reported; absence of a
+person does not trigger an automatic shutdown. Displayed analysis expires after
+3 seconds so an old posture does not remain on screen if the process disappears.
+
+## macOS executable in build/
+
+After preparing `.venv` and the model, select the test and configure `Main(...)`
+at the bottom of `main.py`, then build from the repository root:
 
 ```bash
 .venv/bin/python -m pip install 'pyinstaller==6.22.3'
 ./build-client.sh
 ```
 
-Le script utilise [PyInstaller](https://pyinstaller.org/en/stable/usage.html)
-pour créer `build/nextstep/nextstep` avec Python, OpenCV, MediaPipe et le modèle
-de posture inclus. Conserver **tout le dossier `build/nextstep/`**, notamment
-`_internal/`, lors d'une copie. L'exécutable est destiné à macOS et à
-l'architecture du Mac de compilation (Apple Silicon pour la version actuelle).
-Il ne s'exécute pas sur le Raspberry Pi et ne nécessite pas de `.venv` au lancement.
-Les fichiers de compilation et les caches restent dans `build/`, ignoré par Git.
+The script uses [PyInstaller](https://pyinstaller.org/en/stable/usage.html)
+to create `build/nextstep/nextstep` with Python, OpenCV, MediaPipe and the posture
+model included. It does not run the executable after building.
 
-Après `./start.sh`, lancer l'un des modes dans un second terminal :
+Keep the **entire `build/nextstep/` directory**, including `_internal/`, when
+copying it. The executable targets macOS and the build Mac's architecture
+(Apple Silicon for the existing build). It does not run on the Raspberry Pi
+and does not require `.venv` at runtime. Build outputs and caches remain in
+`build/`, which is ignored by Git.
+
+After `./start.sh`, launch it in a second terminal:
 
 ```bash
-# user_follow_test() : suivi LiDAR avec moteurs actifs
-./build/nextstep/nextstep --state user_follow --url http://127.0.0.1:8000
-
-# camera_test() : caméra et MediaPipe, sans commandes moteurs
-./build/nextstep/nextstep --state posture_checking --dry-run \
-  --url http://127.0.0.1:8000 --ui-url http://127.0.0.1:8080
+./build/nextstep/nextstep
 ```
 
-Ajouter `--dry-run` au suivi pour inhiber les moteurs. Adapter les ports à ceux
-affichés par `start.sh`. Ctrl+C arrête le mode choisi ; le bridge et l'interface
-restent ouverts. Le modèle embarqué peut être remplacé avec `--pose-model CHEMIN`.
-Le bridge Rust et le serveur UI restent lancés séparément par `start.sh`.
+The executable runs the test selected in `main.py` when it was built.
+**Rebuild after changing the selected test or constructor settings.**
+There are no `--state`, `--dry-run`, `--url`, `--ui-url` or `--pose-model`
+options. Set `dry_run=True` in the constructor before building to disable
+movement. `POSE_MODEL` can override the bundled model when no explicit
+`pose_model` is configured. Ctrl+C stops the selected test; the bridge and UI
+remain open and are still launched separately by `start.sh`.
 
-Version macOS ARM64 vérifiée avec un faux bridge HTTP local : démarrage des
-deux modes en `--dry-run`, analyse MediaPipe d'un JPEG synthétique sans personne,
-publication de l'image analysée et arrêt propre par Ctrl+C. Aucun appel moteur
-pendant ces vérifications ; elles ne valident pas le fonctionnement matériel.
+The previous macOS ARM64 build was checked against a local fake HTTP bridge:
+both modes with movement disabled, MediaPipe analysis of a synthetic JPEG with
+no person, publication of the analyzed frame and clean Ctrl+C shutdown.
+Those checks predate the removal of the argument parser; the executable has
+not been rebuilt or revalidated for this change. They do not validate hardware.
 
-## Organisation et routes HTTP
+## Components and HTTP routes
 
-- `BridgeClient.camera_frame(after)` : `GET /camera/frame?after=N` par le tunnel,
-  renvoie `(jpeg, frame_nb)` ou `None` sur HTTP 204, avec un délai HTTP de 4 s.
-- `decode_live_stream.py` : `LiveStreamDecoder.get_image()` décode le JPEG et
-  fournit `(bgr_frame, timestamp_ms)` ; `bgr_to_rgb()` convertit en RGB. Les
-  timestamps de réception sont strictement croissants. Après un 204, le curseur
-  est remis à zéro pour récupérer un bridge redémarré.
-- `posture_detector.py` remplace `mediapipe_test.py`. Un thread acquiert les
-  images, fournit `rgb_frame` et `timestamp_ms` à `detect_async()` et publie le
-  dernier résultat. Le callback conserve l'image exacte associée aux points.
-  Les opérations HTTP et MediaPipe ne bloquent pas la boucle FSM à 10 Hz.
-- `POST /local/posture` sur **le serveur UI du Mac** reçoit
-  `{timestamp_ms, image, poses}` : JPEG base64 et jusqu'à une pose de 33 points
-  `{x, y, visibility}`. `{stopped: true}` efface le résultat.
-- `GET /local/posture` renvoie le dernier résultat avec `active` et `age_ms`,
-  ou `{active: false, image: null, poses: []}` s'il a expiré. Les données sont
-  conservées uniquement en mémoire et ne transitent pas de nouveau par le robot.
+- `BridgeClient.camera_frame(after)`: requests `GET /camera/frame?after=N`
+  through the tunnel and returns `(jpeg, frame_nb)`, or `None` for HTTP 204,
+  with a 4-second HTTP timeout.
+- `decode_live_stream.py`: `LiveStreamDecoder.get_image()` decodes the JPEG
+  into `(bgr_frame, timestamp_ms)`; `bgr_to_rgb()` converts it to RGB.
+  Receipt timestamps strictly increase. After HTTP 204, the cursor resets to
+  recover from a restarted bridge.
+- `posture_detector.py` replaces `mediapipe_test.py`. A worker acquires
+  frames, supplies `rgb_frame` and `timestamp_ms` to `detect_async()` and
+  publishes the latest result. The callback retains the exact frame associated
+  with the landmarks. HTTP and MediaPipe work do not block the 10 Hz FSM loop.
+- `POST /local/posture` on the **Mac's UI server** receives
+  `{timestamp_ms, image, poses}`: a base64 JPEG and up to one pose containing
+  33 `{x, y, visibility}` landmarks. `{stopped: true}` clears the result.
+- `GET /local/posture` returns the latest result with `active` and `age_ms`,
+  or `{active: false, image: null, poses: []}` after expiration. Data stays in
+  memory and is not sent back through the robot.
 
-Les anciens exemples `decode_image.py` et `openCV_test.py` restent des scripts
-de tutoriel indépendants. Ils ne sont pas exécutés par la FSM.
+The historical `decode_image.py` and `openCV_test.py` examples are independent
+tutorial scripts, not FSM components.
 
-API de référence : [MediaPipe PoseLandmarker — LIVE_STREAM et detect_async](https://developers.google.com/edge/api/mediapipe/python/mp/tasks/vision/PoseLandmarker).
-Il peut ignorer des images lorsqu'il est occupé ; l'UI dessine donc sur l'image
-du callback, et non sur une autre image du flux.
+API reference:
+[MediaPipe PoseLandmarker — LIVE_STREAM and detect_async](https://developers.google.com/edge/api/mediapipe/python/mp/tasks/vision/PoseLandmarker).
+MediaPipe may skip frames while busy, so the UI draws on the callback frame
+rather than a different stream frame.
 
-## Vérifier sans robot
+## Verify without a robot
 
 ```bash
 .venv/bin/python -B -m unittest discover -s client -p 'test_*.py'
 python3 -B -m unittest discover -s ui -p 'test_*.py'
 ```
 
-Les tests couvrent l'acquisition, le décodage JPEG et la conversion des couleurs
-(si OpenCV est installé), l'attente sans délai d'arrêt, les résultats anciens,
-le filtrage des logs, la sortie de l'état et l'expiration de l'affichage.
-Ils ne constituent pas une validation du
-suivi de posture sur la C270 ni un score clinique.
+Tests cover acquisition, JPEG decoding and color conversion (when OpenCV is
+installed), waiting without an absence timeout, stale results, log filtering,
+state exit and display expiration. They do not validate posture tracking on
+the C270 or a clinical score.
 
-Vérification locale effectuée avec MediaPipe 0.10.35 et OpenCV 4.14.0 :
-vrai callback LIVE_STREAM sur des images sans personne servies par un faux
-bridge HTTP et effacement de l'UI à la sortie. Affichage
-du squelette vérifié dans Chrome avec 33 points synthétiques. La détection d'une
-personne et le suivi sur le flux réel de la C270 restent à confirmer.
+Previous local checks used MediaPipe 0.10.35 and OpenCV 4.14.0: a real
+LIVE_STREAM callback on frames without a person served by a fake HTTP bridge,
+and UI cleanup on exit. Skeleton rendering was checked in Chrome with
+33 synthetic points. Person detection and tracking on the real C270 stream
+remain unconfirmed.
